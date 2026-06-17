@@ -1,0 +1,10 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Explicit build-script approvals (pnpm 11.7+). Next bundles its own image
+# handling in dev, so sharp's native build is unnecessary.
+allowBuilds:
+  sharp: false
+  unrs-resolver: false
+  esbuild: true

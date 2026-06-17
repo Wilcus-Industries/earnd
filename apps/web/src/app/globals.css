@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+/*
+ * earnd — visual system. Direction: BROADCAST / ON-AIR. Ads are signal pushed
+ * into a developer's attention, so the page is a transmitter: near-black canvas,
+ * warm off-white type, a single signal-amber accent used only for live state and
+ * the one action that matters. Money and ranks are tabular mono — they tick
+ * without reflowing. Not phosphor-green-on-black; the green is only in the black.
+ */
+
+@theme {
+  --color-canvas: #0a0e0a;
+  --color-panel: #0f140e;
+  --color-panel-2: #131a11;
+  --color-wire: #1e241b;
+  --color-wire-bright: #2c3528;
+  --color-ink: #e9e6da;
+  --color-ink-dim: #8a8f82;
+  --color-ink-faint: #565b50;
+  --color-signal: #ff7a1a;
+  --color-signal-soft: #ff7a1a26;
+
+  --font-display: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --font-body: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, "SF Mono", monospace;
+}
+
+@layer base {
+  html {
+    background: var(--color-canvas);
+    color-scheme: dark;
+  }
+  body {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: var(--color-signal);
+    color: #0a0e0a;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-signal);
+    outline-offset: 2px;
+    border-radius: 1px;
+  }
+}
+
+@utility tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ON-AIR indicator pulse. Stilled for reduced-motion users. */
+@keyframes earnd-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 var(--color-signal-soft);
+  }
+  50% {
+    opacity: 0.55;
+    box-shadow: 0 0 0 4px transparent;
+  }
+}
+.onair-dot {
+  animation: earnd-pulse 1.8s ease-in-out infinite;
+}
+
+/* Banner marquee for the live ticker; calm, single pass-friendly. */
+@keyframes earnd-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.marquee-track {
+  animation: earnd-marquee 28s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onair-dot,
+  .marquee-track {
+    animation: none !important;
+  }
+}

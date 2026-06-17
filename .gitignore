@@ -1,0 +1,36 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.*
+
+# builds
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# turbo
+.turbo
+
+# go client
+client/bin/
+client/earnd
+*.test
+
+# env / secrets — NEVER commit
+.env
+.env.*
+!.env.example
+.vercel
+
+# logs / os
+*.log
+npm-debug.log*
+.pnpm-debug.log*
+.DS_Store
+*.pem
+
+# test coverage
+coverage/

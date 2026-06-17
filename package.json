@@ -1,0 +1,22 @@
+{
+  "name": "earnd",
+  "version": "0.1.0",
+  "private": true,
+  "description": "earnd — a terminal ad network. Developer attention during idle terminal time is the inventory.",
+  "packageManager": "pnpm@11.5.2",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "db:generate": "pnpm --filter web db:generate",
+    "db:migrate": "pnpm --filter web db:migrate",
+    "db:push": "pnpm --filter web db:push",
+    "db:studio": "pnpm --filter web db:studio",
+    "stripe:listen": "stripe listen --forward-to localhost:3000/api/webhooks/stripe"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.5"
+  }
+}
