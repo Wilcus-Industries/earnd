@@ -20,7 +20,7 @@ export interface Creative {
   displayUrl: string;
   /** The signed click redirect the banner actually points at: `${base}/r/<token>`. */
   clickUrl: string;
-  /** Optional small base64 icon (validated server-side). */
+  /** Optional emoji glyph rendered left of the line (validated server-side). */
   icon?: string | null;
 }
 

@@ -13,8 +13,8 @@ const minBudgetDollars = ECONOMICS.minTopUpMillicents / 100_000;
 
 // Note: `line`/`targetUrl`/`displayUrl`/`icon` are validated by zod for SHAPE
 // only. The authoritative trust boundary is `sanitizeCreative` below — it strips
-// control/escape/bidi bytes and enforces the https-only URL policy. Never persist
-// raw advertiser bytes that bypass it.
+// control/escape/bidi bytes, enforces the https-only URL policy, and requires the
+// icon to be a single emoji glyph. Never persist raw advertiser bytes that bypass it.
 const schema = z.object({
   advertiserName: z.string().min(1).max(120),
   email: z.string().email().max(254),
@@ -22,7 +22,8 @@ const schema = z.object({
   line: z.string().min(1).max(400),
   targetUrl: z.string().min(1).max(2048),
   displayUrl: z.string().max(200).optional(),
-  icon: z.string().max(40_000).optional(),
+  // A single emoji glyph; sanitizeCreative is the authoritative check.
+  icon: z.string().max(64).optional(),
   // CPM in whole dollars per 1,000 impressions.
   maxCpmDollars: z.number().positive().max(1_000),
   // Budget you fund now (becomes the top-up amount), whole dollars.

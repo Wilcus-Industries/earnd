@@ -5,6 +5,8 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 )
@@ -87,6 +89,36 @@ func APIBase() string {
 		return v
 	}
 	return "http://localhost:3000"
+}
+
+// loopbackHosts are the only hosts allowed to use plaintext http.
+var loopbackHosts = map[string]bool{
+	"localhost": true,
+	"127.0.0.1": true,
+	"::1":       true,
+}
+
+// SecureBase enforces transport security on the API origin: plaintext http is
+// permitted ONLY for loopback hosts (local dev). Any other origin must use
+// https, otherwise the device id, dashboard bearer token, and impression
+// traffic would travel in cleartext and be open to MITM (CWE-319). Returns nil
+// when the base is acceptable.
+func SecureBase(base string) error {
+	u, err := url.Parse(base)
+	if err != nil {
+		return fmt.Errorf("invalid API base %q: %w", base, err)
+	}
+	switch u.Scheme {
+	case "https":
+		return nil
+	case "http":
+		if loopbackHosts[u.Hostname()] {
+			return nil
+		}
+		return fmt.Errorf("refusing plaintext http to non-loopback host %q: use https://", u.Hostname())
+	default:
+		return fmt.Errorf("API base must be http (loopback only) or https, got scheme %q", u.Scheme)
+	}
 }
 
 // Load reads state, defaulting to enabled when no state file exists yet.

@@ -27,6 +27,12 @@ const (
 	clearLine     = esc + "[K"
 	gotoHome      = esc + "[1;1H"
 
+	// Banner row styling: black text on an orange background (truecolor SGR).
+	// Set BEFORE clearLine so ESC[K paints the whole row orange via background-
+	// color-erase; resetStyle stops the color bleeding past row 1.
+	bannerStyle = esc + "[48;2;255;140;0;38;2;0;0;0m"
+	resetStyle  = esc + "[0m"
+
 	// releaseMargins resets the scroll region to the full screen.
 	releaseMargins = esc + "[r"
 )
@@ -115,27 +121,64 @@ func truncateToWidth(s string, cols int) string {
 type Banner struct {
 	Line string // sanitized banner text
 	URL  string // OSC 8 click target (the signed redirect URL)
+	Icon string // optional emoji glyph drawn left of the line ("" = none)
 }
+
+// iconCells is the column budget reserved for the emoji icon plus its margins:
+// a 1-column left margin, the emoji, and a 1-column gap before the line. The
+// emoji itself is reserved as 2 cells — terminals render an emoji grapheme as a
+// double-width cell, and counting runes would mis-measure ZWJ/flag sequences.
+const iconCells = 1 + 2 + 1
 
 // Draw returns the full escape sequence that pins row 1 and writes the banner,
 // truncated to cols and re-asserting margins for the given terminal height.
 func Draw(b Banner, cols, lines int) string {
-	text := truncateToWidth(b.Line, cols)
-	linked := osc8(b.URL, text)
+	// With an icon and room to spare, prefix " <emoji> " and shrink the text
+	// budget accordingly; otherwise the line keeps the full width as before.
+	// Last-line-of-defense neutralization: strip any control/escape/bidi bytes
+	// from the line and reject a non-https / malformed click target BEFORE
+	// truncation or linking, so a poisoned cache or hostile server can't inject
+	// raw ESC/CSI/OSC into row 1. Width clamping is applied after.
+	text := sanitizeLine(b.Line)
+	clickURL := safeURL(b.URL)
+	icon := sanitizeLine(b.Icon)
+	prefix := ""
+	if icon != "" && cols > iconCells+1 {
+		prefix = " " + icon + " "
+		text = truncateToWidth(text, cols-iconCells)
+	} else {
+		text = truncateToWidth(text, cols)
+	}
+	linked := osc8(clickURL, text) // icon stays decorative (outside the click target)
 	var sb strings.Builder
 	sb.WriteString(beginSync)
+	sb.WriteString(saveCursor)        // save BEFORE setMargins — DECSTBM homes the cursor
 	sb.WriteString(setMargins(lines)) // (re)assert every redraw
-	sb.WriteString(saveCursor)
 	sb.WriteString(gotoHome)
+	sb.WriteString(bannerStyle) // orange bg + black fg; clearLine paints the row via BCE
 	sb.WriteString(clearLine)
+	sb.WriteString(prefix) // left margin + emoji + gap (inherits the banner bg)
 	sb.WriteString(linked)
-	sb.WriteString(restoreCursor)
+	sb.WriteString(resetStyle)    // stop the color bleeding past the banner row
+	sb.WriteString(restoreCursor) // back to where the shell left it, not row 1
 	sb.WriteString(endSync)
 	return sb.String()
 }
 
+// ClearScreen clears the scrollback and everything below the banner while leaving
+// row 1 intact. The shell binds `clear` (and Ctrl-L) to this so a clear no longer
+// wipes the banner the way a bare ESC[2J would: jump to row 2, erase from there to
+// the end of the screen (row 1 untouched), drop the scrollback, and leave the
+// cursor at the top of the scroll region so the next prompt draws below the banner.
+func ClearScreen() string {
+	return esc + "[2;1H" + esc + "[J" + esc + "[3J"
+}
+
 // Release returns the sequence that gives the terminal back to the user: reset
 // margins and clear row 1. Emit on disable, offline, and the shell EXIT trap.
+// saveCursor MUST come before releaseMargins: DECSTBM reset (ESC[r) homes the
+// cursor as a side effect, so saving after it would park the cursor at row 1
+// every prompt — the "terminal resets each command" bug.
 func Release() string {
-	return releaseMargins + saveCursor + gotoHome + clearLine + restoreCursor
+	return saveCursor + releaseMargins + gotoHome + clearLine + restoreCursor
 }

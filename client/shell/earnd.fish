@@ -7,7 +7,7 @@ if not set -q EARND_BIN
     set -g EARND_BIN earnd
 end
 if not set -q EARND_API_BASE
-    set -gx EARND_API_BASE "https://earnd.net"
+    set -gx EARND_API_BASE "http://localhost:3000"
 end
 
 function _earnd_render --on-event fish_prompt
@@ -27,3 +27,13 @@ function _earnd_open
     command $EARND_BIN open >/dev/null 2>&1
 end
 bind \cg _earnd_open
+
+# `clear` / Ctrl-L wipe the screen below the banner instead of erasing row 1.
+function clear
+    command $EARND_BIN clear 2>/dev/null
+end
+function _earnd_clear_widget
+    command $EARND_BIN clear 2>/dev/null
+    commandline -f repaint
+end
+bind \cl _earnd_clear_widget

@@ -6,6 +6,7 @@ package core
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -20,11 +21,17 @@ type Client struct {
 	http *http.Client
 }
 
-// NewClient builds a client against the configured API base.
+// NewClient builds a client against the configured API base. The transport
+// floors TLS at 1.2 so a downgrade can't push the connection onto weak crypto.
 func NewClient() *Client {
 	return &Client{
 		base: config.APIBase(),
-		http: &http.Client{Timeout: 8 * time.Second},
+		http: &http.Client{
+			Timeout: 8 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
+			},
+		},
 	}
 }
 
@@ -34,7 +41,8 @@ type Creative struct {
 	Line       string `json:"line"`
 	DisplayURL string `json:"displayUrl"`
 	ClickURL   string `json:"clickUrl"`
-	Icon       string `json:"icon,omitempty"`
+	// Icon is an optional emoji glyph drawn left of the line.
+	Icon string `json:"icon,omitempty"`
 }
 
 // BeginResult is the auction outcome for one impression.
@@ -47,6 +55,10 @@ type BeginResult struct {
 }
 
 func (c *Client) postJSON(ctx context.Context, path string, body, out any) error {
+	// Fail closed on an insecure transport before any secret leaves the process.
+	if err := config.SecureBase(c.base); err != nil {
+		return err
+	}
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return err

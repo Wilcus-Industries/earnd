@@ -20,10 +20,12 @@ export default function ModerationPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
-  // Remember the token locally so a refresh doesn't kick the reviewer out.
+  // Keep the token in sessionStorage only: it survives a refresh within the tab
+  // but is cleared when the tab closes, so a payout-capable secret never persists
+  // to disk where another script or a later user could read it (CWE-522).
   useEffect(() => {
-    const saved = window.localStorage.getItem("earnd_admin_token");
-    // One-shot read of localStorage after mount (browser-only).
+    const saved = window.sessionStorage.getItem("earnd_admin_token");
+    // One-shot read of sessionStorage after mount (browser-only).
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (saved) setToken(saved);
   }, []);
@@ -43,7 +45,7 @@ export default function ModerationPage() {
     const data = await res.json();
     setRows(data.pending ?? []);
     setAuthed(true);
-    window.localStorage.setItem("earnd_admin_token", tok);
+    window.sessionStorage.setItem("earnd_admin_token", tok);
   }, []);
 
   async function decide(adId: string, action: "approve" | "reject") {
@@ -111,12 +113,7 @@ export default function ModerationPage() {
             <div className="mb-3 flex items-center gap-2 rounded-sm bg-[#070A07] px-3 py-1.5 font-mono text-[12px]">
               <span className="onair-dot h-2 w-2 shrink-0 rounded-full bg-signal" />
               {ad.icon && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={ad.icon.startsWith("data:") ? ad.icon : `data:image/png;base64,${ad.icon}`}
-                  alt=""
-                  className="h-3.5 w-3.5 shrink-0 rounded-[2px] object-cover"
-                />
+                <span className="shrink-0 text-[13px] leading-none">{ad.icon}</span>
               )}
               <span className="truncate text-ink-dim">
                 {ad.line}

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { EmojiPicker } from "frimousse";
 
 type Status =
   | { kind: "idle" }
@@ -8,8 +10,6 @@ type Status =
   | { kind: "error"; message: string }
   | { kind: "topup_success" }
   | { kind: "topup_cancelled" };
-
-const MAX_ICON_BYTES = 16 * 1024;
 
 export default function BidPage() {
   const [advertiserName, setAdvertiserName] = useState("");
@@ -21,7 +21,6 @@ export default function BidPage() {
   const [maxCpmDollars, setMaxCpmDollars] = useState("2.00");
   const [budgetDollars, setBudgetDollars] = useState("50");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
-  const fileRef = useRef<HTMLInputElement>(null);
 
   // Reflect the Stripe Checkout return (?topup=success|cancelled) without pulling
   // in useSearchParams (which would force a Suspense boundary).
@@ -32,25 +31,6 @@ export default function BidPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (next) setStatus({ kind: next });
   }, []);
-
-  async function onFile(file: File | null) {
-    if (!file) {
-      setIcon(null);
-      return;
-    }
-    if (file.size > MAX_ICON_BYTES) {
-      setStatus({ kind: "error", message: "Icon must be 16KB or smaller." });
-      if (fileRef.current) fileRef.current.value = "";
-      return;
-    }
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(String(r.result));
-      r.onerror = () => reject(r.error);
-      r.readAsDataURL(file);
-    });
-    setIcon(dataUrl);
-  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -180,15 +160,15 @@ export default function BidPage() {
               placeholder="acme.com"
             />
           </Field>
-          <Field label="Icon" hint="Optional PNG/JPG/GIF/WebP, 16KB max.">
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/png,image/jpeg,image/gif,image/webp"
-              onChange={(e) => onFile(e.target.files?.[0] ?? null)}
-              className="block w-full font-mono text-sm text-ink-dim file:mr-3 file:rounded-sm file:border file:border-wire-bright file:bg-transparent file:px-3 file:py-1.5 file:font-mono file:text-xs file:text-ink-dim hover:file:text-ink"
-            />
-          </Field>
+          {/* Not a <label>: a label wrapping the picker's input + button grid
+              hijacks clicks/focus, trapping the user inside the popover. */}
+          <div className="flex flex-col gap-1.5">
+            <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink-dim">Icon</span>
+            <EmojiField value={icon} onChange={setIcon} />
+            <span className="font-mono text-[11px] text-ink-faint">
+              Optional. An emoji shown left of your line.
+            </span>
+          </div>
 
           <div className="grid grid-cols-2 gap-4">
             <Field label="Max bid" hint="USD per 1,000 impressions. Min $1.">
@@ -244,10 +224,7 @@ export default function BidPage() {
             </div>
             <div className="flex items-center gap-2 border-b border-wire bg-panel px-4 py-1.5 font-mono text-[12px]">
               <span className="onair-dot h-2 w-2 shrink-0 rounded-full bg-signal" />
-              {icon && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={icon} alt="" className="h-3.5 w-3.5 shrink-0 rounded-[2px] object-cover" />
-              )}
+              {icon && <span className="shrink-0 text-[13px] leading-none">{icon}</span>}
               <span className="truncate text-ink-dim">
                 {previewLine}
                 <span className="text-ink-faint"> → {previewHost}</span>
@@ -310,6 +287,128 @@ function Notice({ tone, children }: { tone: "ok" | "warn" | "error"; children: R
   return (
     <div className={`mb-6 rounded-sm border ${border} bg-panel/40 px-4 py-3 font-mono text-sm ${text}`}>
       {children}
+    </div>
+  );
+}
+
+// Headless emoji picker (frimousse) styled with the form's own tokens. The chosen
+// glyph is stored verbatim and re-validated server-side (one emoji, sanitize.ts).
+function EmojiField({
+  value,
+  onChange,
+}: {
+  value: string | null;
+  onChange: (emoji: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  // Anchor the portaled popover under the trigger, and close on Escape. The
+  // popover is portaled to <body> so it escapes this field's DOM (and any
+  // clipping/stacking ancestor) — clicks and focus stay free.
+  useEffect(() => {
+    if (!open) return;
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 8, left: r.left });
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  return (
+    <div className="flex items-center gap-3">
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-label="Choose an emoji"
+        onClick={() => setOpen((o) => !o)}
+        className="flex h-10 w-10 items-center justify-center rounded-sm border border-wire-bright bg-panel/40 text-lg leading-none outline-none transition-colors hover:border-signal focus:border-signal"
+      >
+        {value ?? <span className="font-mono text-base text-ink-faint">+</span>}
+      </button>
+      {value && (
+        <button
+          type="button"
+          onClick={() => {
+            onChange(null);
+            setOpen(false);
+          }}
+          className="font-mono text-[11px] text-ink-faint underline-offset-2 hover:text-ink"
+        >
+          clear
+        </button>
+      )}
+
+      {open &&
+        pos &&
+        createPortal(
+          <>
+            {/* click-away */}
+            <button
+              type="button"
+              aria-hidden
+              tabIndex={-1}
+              onClick={() => setOpen(false)}
+              className="fixed inset-0 z-40 cursor-default"
+            />
+            <div
+              style={{ top: pos.top, left: pos.left }}
+              className="fixed z-50 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-sm border border-wire-bright bg-panel shadow-2xl shadow-black/40"
+            >
+              <EmojiPicker.Root
+              className="isolate flex h-80 w-full flex-col bg-panel"
+              onEmojiSelect={({ emoji }) => {
+                onChange(emoji);
+                setOpen(false);
+              }}
+            >
+              <EmojiPicker.Search
+                autoFocus
+                placeholder="search emoji"
+                className="m-2 rounded-sm border border-wire-bright bg-canvas px-3 py-2 font-mono text-sm text-ink outline-none placeholder:text-ink-faint focus:border-signal"
+              />
+              <EmojiPicker.Viewport className="relative flex-1 outline-none">
+                <EmojiPicker.Loading className="absolute inset-0 flex items-center justify-center font-mono text-xs text-ink-faint">
+                  loading…
+                </EmojiPicker.Loading>
+                <EmojiPicker.Empty className="absolute inset-0 flex items-center justify-center font-mono text-xs text-ink-faint">
+                  no emoji found
+                </EmojiPicker.Empty>
+                <EmojiPicker.List
+                  className="select-none pb-1.5"
+                  components={{
+                    CategoryHeader: ({ category, ...props }) => (
+                      <div
+                        {...props}
+                        className="bg-panel px-2 pt-2 pb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint"
+                      >
+                        {category.label}
+                      </div>
+                    ),
+                    Row: ({ children, ...props }) => (
+                      <div {...props} className="scroll-my-1 px-1">
+                        {children}
+                      </div>
+                    ),
+                    Emoji: ({ emoji, ...props }) => (
+                      <button
+                        {...props}
+                        className="flex h-8 w-8 items-center justify-center rounded-sm text-lg leading-none data-[active]:bg-wire-bright"
+                      >
+                        {emoji.emoji}
+                      </button>
+                    ),
+                  }}
+                />
+              </EmojiPicker.Viewport>
+            </EmojiPicker.Root>
+            </div>
+          </>,
+          document.body,
+        )}
     </div>
   );
 }

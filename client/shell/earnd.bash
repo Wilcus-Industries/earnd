@@ -4,7 +4,7 @@
 
 [ -z "$PS1" ] && return            # interactive shells only
 : "${EARND_BIN:=earnd}"
-: "${EARND_API_BASE:=https://earnd.net}"
+: "${EARND_API_BASE:=http://localhost:3000}"
 export EARND_API_BASE
 
 _earnd_render() {
@@ -24,3 +24,7 @@ trap 'command "$EARND_BIN" reset 2>/dev/null' EXIT  # release margins on exit (C
 
 # Ctrl-G opens the current ad in the browser.
 bind -x '"\C-g":_earnd_open' 2>/dev/null
+
+# `clear` / Ctrl-L wipe the screen below the banner instead of erasing row 1.
+clear() { command "$EARND_BIN" clear 2>/dev/null; }
+bind -x '"\C-l":clear' 2>/dev/null

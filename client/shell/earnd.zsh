@@ -4,7 +4,7 @@
 
 [[ -o interactive ]] || return
 : "${EARND_BIN:=earnd}"
-: "${EARND_API_BASE:=https://earnd.net}"
+: "${EARND_API_BASE:=http://localhost:3000}"
 export EARND_API_BASE
 
 _earnd_render() {
@@ -23,3 +23,10 @@ add-zsh-hook zshexit _earnd_reset           # release margins on exit (ConPTY sa
 _earnd_open() { command "$EARND_BIN" open >/dev/null 2>&1; zle reset-prompt }
 zle -N _earnd_open
 bindkey '^g' _earnd_open
+
+# `clear` / Ctrl-L wipe the screen below the banner instead of erasing row 1.
+_earnd_clear() { command "$EARND_BIN" clear 2>/dev/null }
+clear() { _earnd_clear }                                    # the `clear` command
+_earnd_clear_widget() { _earnd_clear; zle reset-prompt }    # Ctrl-L
+zle -N _earnd_clear_widget
+bindkey '^l' _earnd_clear_widget

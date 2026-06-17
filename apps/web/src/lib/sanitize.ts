@@ -9,7 +9,7 @@
  *  - strip bidi overrides + zero-width chars (Trojan-Source class attacks)
  *  - collapse whitespace, bound length
  *  - URLs: https only, parseable, length-bounded; served only via the signed redirect
- *  - icon: small, well-formed image magic bytes, or rejected
+ *  - icon: a single emoji glyph (rendered left of the line), or rejected
  */
 
 export interface CleanCreative {
@@ -26,7 +26,8 @@ export type SanitizeResult =
 const MAX_LINE_CODEPOINTS = 140;
 const MAX_URL_LEN = 2048;
 const MAX_DISPLAY_LEN = 64;
-const MAX_ICON_BYTES = 16 * 1024;
+// A single emoji grapheme; a skin-toned, ZWJ-joined sequence stays well under this.
+const MAX_ICON_CODEPOINTS = 8;
 
 // Build a character-class regex from numeric code-point ranges, so the source
 // stays pure ASCII (no literal control/invisible bytes to get mangled).
@@ -80,31 +81,22 @@ export function validateHttpsUrl(raw: string): URL | null {
   return u;
 }
 
-const IMAGE_MAGIC: Array<{ name: string; bytes: number[] }> = [
-  { name: "png", bytes: [0x89, 0x50, 0x4e, 0x47] },
-  { name: "jpg", bytes: [0xff, 0xd8, 0xff] },
-  { name: "gif", bytes: [0x47, 0x49, 0x46, 0x38] },
-];
+// One emoji grapheme: a regional-indicator pair (flags) OR a pictographic base
+// with an optional VS16 (\uFE0F) / skin-tone modifier, plus any ZWJ-joined
+// (\u200D) continuations. Letters, digits, punctuation, whitespace, and
+// control/escape bytes all fail. Escapes (not literal invisibles) keep the
+// source pure ASCII — see the header note on Trojan-Source bytes.
+const EMOJI_RE =
+  /^(?:\p{RI}\p{RI}|\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*)$/u;
 
-/** Validate an optional base64 icon: small + recognizable image bytes. */
+/** Validate an optional icon: exactly one emoji glyph, or rejected. */
 export function validateIcon(raw: string | null | undefined): { ok: boolean; value: string | null } {
   if (!raw) return { ok: true, value: null };
-  const b64 = raw.replace(/^data:image\/[a-z+]+;base64,/, "");
-  let buf: Buffer;
-  try {
-    buf = Buffer.from(b64, "base64");
-  } catch {
-    return { ok: false, value: null };
-  }
-  if (buf.length === 0 || buf.length > MAX_ICON_BYTES) return { ok: false, value: null };
-  const isRiffWebp =
-    buf.length > 12 &&
-    buf.toString("ascii", 0, 4) === "RIFF" &&
-    buf.toString("ascii", 8, 12) === "WEBP";
-  const magicOk =
-    isRiffWebp || IMAGE_MAGIC.some((m) => m.bytes.every((b, i) => buf[i] === b));
-  if (!magicOk) return { ok: false, value: null };
-  return { ok: true, value: b64 };
+  const s = raw.trim();
+  if (!s) return { ok: true, value: null };
+  if (Array.from(s).length > MAX_ICON_CODEPOINTS) return { ok: false, value: null };
+  if (!EMOJI_RE.test(s)) return { ok: false, value: null };
+  return { ok: true, value: s };
 }
 
 export function sanitizeCreative(input: {
@@ -125,7 +117,7 @@ export function sanitizeCreative(input: {
   displayUrl = clampCodepoints(displayUrl, MAX_DISPLAY_LEN);
 
   const icon = validateIcon(input.icon);
-  if (!icon.ok) return { ok: false, error: "Icon must be a small PNG/JPG/GIF/WebP image." };
+  if (!icon.ok) return { ok: false, error: "Icon must be a single emoji." };
 
   return { ok: true, value: { line, displayUrl, targetUrl: target.toString(), icon: icon.value } };
 }

@@ -24,10 +24,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
+	"strings"
 
 	"github.com/earnd/client/internal/auth"
 	"github.com/earnd/client/internal/config"
@@ -64,6 +66,13 @@ func main() {
 		if isTTY(os.Stdout) {
 			fmt.Print(render.Release())
 		}
+	case "clear":
+		// Banner-preserving clear: wipe the scrollback + everything below row 1 but
+		// keep the banner. The shell binds `clear`/Ctrl-L here (a bare ESC[2J would
+		// erase row 1 too, and homing the cursor lets the prompt overwrite it).
+		if isTTY(os.Stdout) {
+			fmt.Print(render.ClearScreen())
+		}
 	case "status":
 		cmdStatus()
 	case "version", "--version", "-v":
@@ -75,7 +84,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: earnd <render|tick|register|open|on|off|reset|status|version>")
+	fmt.Fprintln(os.Stderr, "usage: earnd <render|tick|register|open|on|off|reset|clear|status|version>")
 }
 
 func mustSet(enabled bool) {
@@ -123,7 +132,7 @@ func cmdRender(args []string) {
 		fmt.Print(render.Release())
 		return
 	}
-	fmt.Print(render.Draw(render.Banner{Line: c.Line, URL: c.ClickURL}, *width, *rows))
+	fmt.Print(render.Draw(render.Banner{Line: c.Line, URL: c.ClickURL, Icon: c.Icon}, *width, *rows))
 }
 
 func cmdTick(args []string) {
@@ -166,8 +175,27 @@ func cmdOpen() {
 	openURL(c.ClickURL)
 }
 
+// safeOpenURL reports whether u is safe to hand to the OS opener. It must parse
+// as an http/https URL and must not begin with '-', which the opener (open /
+// xdg-open / cmd start) would otherwise treat as an option flag — argument
+// injection (CWE-88). No shell is spawned, so this only blocks option smuggling
+// and non-web schemes (file:, etc.).
+func safeOpenURL(u string) bool {
+	if u == "" || strings.HasPrefix(u, "-") {
+		return false
+	}
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return false
+	}
+	return parsed.Scheme == "https" || parsed.Scheme == "http"
+}
+
 // openURL launches the OS default browser on the signed redirect URL.
 func openURL(u string) {
+	if !safeOpenURL(u) {
+		return
+	}
 	var name string
 	var args []string
 	switch runtime.GOOS {

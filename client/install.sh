@@ -14,7 +14,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-API_BASE="https://earnd.net"
+API_BASE="http://localhost:3000"  # override for prod: ./install.sh --api-base https://your-deploy
 PREFIX="$HOME/.local/bin"
 SHELL_NAME=""
 
@@ -27,6 +27,18 @@ while [ $# -gt 0 ]; do
     *) echo "earnd: unknown arg: $1" >&2; exit 2 ;;
   esac
 done
+
+# Refuse a non-loopback api-base served over plaintext http: the device id,
+# dashboard token, and impression traffic would travel in cleartext (CWE-319).
+case "$API_BASE" in
+  http://localhost*|http://127.0.0.1*|http://[::1]*|https://*) ;;
+  http://*)
+    echo "earnd: refusing plaintext --api-base '$API_BASE'. Use https:// for non-loopback hosts." >&2
+    exit 2 ;;
+  *)
+    echo "earnd: --api-base must start with http:// (loopback only) or https://, got '$API_BASE'." >&2
+    exit 2 ;;
+esac
 
 # Detect the shell from $SHELL if not given.
 if [ -z "$SHELL_NAME" ]; then

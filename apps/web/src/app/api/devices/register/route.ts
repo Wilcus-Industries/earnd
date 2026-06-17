@@ -3,8 +3,15 @@ import { z } from "zod";
 import { getDb } from "@/db";
 import { devices, publishers } from "@/db/schema";
 import { json, readJson } from "@/lib/api";
+import { clientIp, rateLimit } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
+
+// Registration is unauthenticated and creates a publisher row, so cap it per IP
+// to stop a flood from minting unbounded publishers (CWE-307). Longer term this
+// should require a signed challenge proving Ed25519 key possession.
+const REGISTER_LIMIT = 10;
+const REGISTER_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
 const schema = z.object({
   publicKey: z.string().min(20),
@@ -17,6 +24,14 @@ const schema = z.object({
 // dashboardToken is the bearer secret for the publisher's earnings dashboard; the
 // client stores it and prints it via `earnd status`.
 export async function POST(req: Request) {
+  const limit = rateLimit(`register:${clientIp(req)}`, REGISTER_LIMIT, REGISTER_WINDOW_MS);
+  if (!limit.ok) {
+    return json(
+      { error: "too many registration attempts; try again later" },
+      { status: 429, headers: { "retry-after": String(limit.retryAfter) } },
+    );
+  }
+
   const parsed = await readJson(req, schema);
   if (!parsed.ok) return parsed.res;
   const { publicKey, os, email } = parsed.data;
