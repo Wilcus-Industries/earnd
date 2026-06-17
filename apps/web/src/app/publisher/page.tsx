@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     "Install the earnd client and keep 50% of every server-confirmed impression your terminal earns.",
 };
 
-const INSTALL = "git clone https://github.com/youruser/earnd && ./earnd/client/install.sh";
+const INSTALL = "git clone https://github.com/Wilcus-Industries/earnd && ./earnd/client/install.sh";
 
 export default function PublisherPage() {
   return (
