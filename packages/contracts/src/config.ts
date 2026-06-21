@@ -87,8 +87,21 @@ export const ECONOMICS = {
 export const impressionChargeMillicents = (cpmMillicents: number): number =>
   Math.round(cpmMillicents / 1000);
 
-/** Publisher accrual for a charged impression, in integer millicents. */
-export const publisherAccrualMillicents = (chargeMillicents: number): number =>
-  Math.floor((chargeMillicents * ECONOMICS.publisherShareBps) / 10_000);
+/**
+ * Publisher accrual for a charged impression, in integer millicents.
+ *
+ * The share is exact only when `charge * shareBps` divides 10_000; otherwise one
+ * indivisible millicent is left over. `roundUp` decides who gets it. Always
+ * flooring would hand every leftover millicent to the platform, so the caller
+ * passes a balanced (per-impression deterministic) `roundUp` to split leftovers
+ * ~50/50 over time. `platformFee = charge - accrual` keeps double-entry exact.
+ */
+export const publisherAccrualMillicents = (
+  chargeMillicents: number,
+  roundUp = false,
+): number => {
+  const exact = (chargeMillicents * ECONOMICS.publisherShareBps) / 10_000;
+  return roundUp ? Math.ceil(exact) : Math.floor(exact);
+};
 
 export type Economics = typeof ECONOMICS;

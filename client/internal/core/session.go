@@ -15,10 +15,7 @@ import (
 // and the tick share it so "fresh probe" means the same thing on both sides.
 const OnlineTTL = 90 * time.Second
 
-const (
-	tokenMaxAgeSeconds = 110              // server token TTL is 120s; rotate before it expires
-	tickLockStale      = 30 * time.Second // a lock older than this is abandoned
-)
+const tokenMaxAgeSeconds = 110 // server token TTL is 120s; rotate before it expires
 
 // Session is the in-flight impression: the signed token plus the client-side
 // dwell clock (seconds the banner has been shown since the token was issued).
@@ -69,10 +66,29 @@ func Tick(surface string, width int) {
 	_, _, _ = cl.Heartbeat(ctx, sess.Token, displayed)
 
 	if displayed >= float64(sess.MinDwellSeconds) {
-		// Redeem once; success or terminal failure both rotate to a fresh impression.
-		_, _, _ = cl.Redeem(ctx, sess.Token, displayed)
-		beginFresh(ctx, cl, id.DeviceID, surface, width)
+		// Redeem before rotating. A transient network/5xx failure must NOT drop the
+		// impression — the publisher would silently lose that earning. Retry a few
+		// times; rotate only once the server actually answered (a record OR a terminal
+		// reason like replay/expired/insufficient). Redeem is nonce-idempotent
+		// server-side, so retrying after a lost response can never double-charge.
+		if redeemSettled(ctx, cl, sess.Token, displayed) {
+			beginFresh(ctx, cl, id.DeviceID, surface, width)
+		}
+		// else: keep the live token and retry on the next tick (valid ~110s).
 	}
+}
+
+// redeemSettled redeems with bounded retries on transient errors. Returns true when
+// the server answered (so the session should rotate) and false when every attempt
+// hit a transient error (so the token should be kept and retried next tick).
+func redeemSettled(ctx context.Context, cl *Client, token string, displayed float64) bool {
+	for attempt := 0; attempt < 3; attempt++ {
+		if _, _, err := cl.Redeem(ctx, token, displayed); err == nil {
+			return true
+		}
+		time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
+	}
+	return false
 }
 
 func beginFresh(ctx context.Context, cl *Client, deviceID, surface string, width int) {
@@ -199,26 +215,13 @@ func SaveSession(s Session) error {
 // ── tick lock ───────────────────────────────────────────────────────
 
 // acquireTickLock serializes background ticks. Returns a release func and ok=true
-// when the caller holds the lock; ok=false when a fresh lock is already held.
+// when the caller holds the lock; ok=false when another tick already holds it. The
+// mutual exclusion itself is delegated to a platform lock (flock on unix), so there
+// is no check-then-act window and a crashed holder's lock is released by the OS.
 func acquireTickLock() (func(), bool) {
 	p, err := config.TickLockPath()
 	if err != nil {
 		return func() {}, true // best-effort: proceed without a lock
 	}
-	f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		// Held already — steal it only if abandoned (stale mtime).
-		if info, statErr := os.Stat(p); statErr == nil && time.Since(info.ModTime()) > tickLockStale {
-			_ = os.Remove(p)
-			if f2, err2 := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600); err2 == nil {
-				f = f2
-			} else {
-				return func() {}, false
-			}
-		} else {
-			return func() {}, false
-		}
-	}
-	_ = f.Close()
-	return func() { _ = os.Remove(p) }, true
+	return tryTickLock(p)
 }

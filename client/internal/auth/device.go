@@ -11,10 +11,33 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/earnd/client/internal/config"
 )
+
+// ensurePrivatePerms re-verifies that a secret-bearing file (the device key, the
+// identity holding the dashboard token) is not group/other readable before we trust
+// it — permissions can drift after creation (a careless chmod, a bad umask on a
+// restore). On unix it tightens an over-permissive file back to 0600 and fails if it
+// cannot. No-op on Windows, where unix permission bits aren't meaningful.
+func ensurePrivatePerms(path string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		if err := os.Chmod(path, 0o600); err != nil {
+			return fmt.Errorf("insecure permissions on %s and chmod failed: %w", path, err)
+		}
+	}
+	return nil
+}
 
 // Identity is the registered device, persisted after a successful register call.
 type Identity struct {
@@ -34,6 +57,9 @@ func LoadOrCreateKey() (ed25519.PrivateKey, error) {
 		return nil, err
 	}
 	if raw, err := os.ReadFile(p); err == nil {
+		if permErr := ensurePrivatePerms(p); permErr != nil {
+			return nil, permErr
+		}
 		dec, err := base64.StdEncoding.DecodeString(string(raw))
 		if err == nil && len(dec) == ed25519.PrivateKeySize {
 			return ed25519.PrivateKey(dec), nil
@@ -72,6 +98,9 @@ func LoadIdentity() (Identity, error) {
 	raw, err := os.ReadFile(p)
 	if err != nil {
 		return Identity{}, err
+	}
+	if permErr := ensurePrivatePerms(p); permErr != nil {
+		return Identity{}, permErr
 	}
 	var id Identity
 	if err := json.Unmarshal(raw, &id); err != nil {

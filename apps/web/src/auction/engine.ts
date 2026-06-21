@@ -7,13 +7,13 @@
  * Balance here is a best-effort eligibility filter; the AUTHORITATIVE stop against
  * overspend happens at redeem inside a row-locked transaction (see ledger.ts).
  */
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import {
   ECONOMICS,
   impressionChargeMillicents,
 } from "@earnd/contracts/config";
 import { getDb } from "@/db";
-import { ads, bids, ledgerEntries } from "@/db/schema";
+import { ads, bids, impressions, ledgerEntries } from "@/db/schema";
 
 export interface AuctionWinner {
   adId: string;
@@ -30,6 +30,8 @@ interface Candidate {
   adId: string;
   advertiserId: string;
   maxCpmMillicents: number;
+  budgetMillicents: number;
+  dailyCapMillicents: number | null;
   line: string;
   displayUrl: string;
   targetUrl: string;
@@ -59,6 +61,27 @@ async function balancesFor(advertiserIds: string[]): Promise<Map<string, number>
   return out;
 }
 
+/** Map of adId -> billed spend (millicents), optionally scoped to `since` for daily pacing. */
+async function spendByAd(adIds: string[], since?: Date): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (adIds.length === 0) return out;
+  const rows = await getDb()
+    .select({
+      adId: impressions.adId,
+      spent: sql<string>`COALESCE(SUM(${impressions.chargeMillicents}), 0)`,
+    })
+    .from(impressions)
+    .where(
+      and(
+        inArray(impressions.adId, adIds),
+        since ? gte(impressions.redeemedAt, since) : undefined,
+      ),
+    )
+    .groupBy(impressions.adId);
+  for (const r of rows) out.set(r.adId, Number(r.spent));
+  return out;
+}
+
 /** Pick an element weighted by `weight(item)`. Assumes non-empty, positive weights. */
 function weightedPick<T>(items: T[], weight: (t: T) => number): T {
   const total = items.reduce((s, it) => s + weight(it), 0);
@@ -77,6 +100,8 @@ export async function runAuction(): Promise<AuctionWinner | null> {
       adId: ads.id,
       advertiserId: bids.advertiserId,
       maxCpmMillicents: bids.maxCpmMillicents,
+      budgetMillicents: bids.budgetMillicents,
+      dailyCapMillicents: bids.dailyCapMillicents,
       line: ads.line,
       displayUrl: ads.displayUrl,
       targetUrl: ads.targetUrl,
@@ -89,9 +114,29 @@ export async function runAuction(): Promise<AuctionWinner | null> {
   if (candidates.length === 0) return null;
 
   const balances = await balancesFor([...new Set(candidates.map((c) => c.advertiserId))]);
-  const eligible = candidates.filter(
-    (c) => (balances.get(c.advertiserId) ?? 0) >= impressionChargeMillicents(c.maxCpmMillicents),
-  );
+  // Spend already attributed to each ad — total (lifetime budget) and last-24h
+  // (daily pacing cap). Best-effort eligibility filter; redeem re-checks under the
+  // advertiser lock as the authoritative stop.
+  const adIds = candidates.map((c) => c.adId);
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const [totalSpent, todaySpent] = await Promise.all([
+    spendByAd(adIds),
+    spendByAd(adIds, dayAgo),
+  ]);
+
+  const eligible = candidates.filter((c) => {
+    const charge = impressionChargeMillicents(c.maxCpmMillicents);
+    if ((balances.get(c.advertiserId) ?? 0) < charge) return false;
+    // Don't let an impression push lifetime spend past the budget the advertiser set.
+    if ((totalSpent.get(c.adId) ?? 0) + charge > c.budgetMillicents) return false;
+    if (
+      c.dailyCapMillicents != null &&
+      (todaySpent.get(c.adId) ?? 0) + charge > c.dailyCapMillicents
+    ) {
+      return false;
+    }
+    return true;
+  });
   if (eligible.length === 0) return null;
 
   const winner = weightedPick(eligible, (c) => c.maxCpmMillicents);

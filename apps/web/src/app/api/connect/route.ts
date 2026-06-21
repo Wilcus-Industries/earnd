@@ -32,8 +32,16 @@ export async function POST(req: Request) {
 
   let accountId = await existingAccount(publisherId);
   if (!accountId) {
-    accountId = await createConnectAccount(pub.email);
-    await getDb().insert(payoutAccounts).values({ publisherId, stripeAccountId: accountId });
+    const created = await createConnectAccount(pub.email);
+    // Race-safe: the unique index on publisherId means a concurrent onboarding can't
+    // persist a second account. If we lost the race, fall back to the winning row
+    // (the account we just created at Stripe is abandoned — rare, and never billed).
+    const [row] = await getDb()
+      .insert(payoutAccounts)
+      .values({ publisherId, stripeAccountId: created })
+      .onConflictDoNothing({ target: payoutAccounts.publisherId })
+      .returning({ stripeAccountId: payoutAccounts.stripeAccountId });
+    accountId = row?.stripeAccountId ?? (await existingAccount(publisherId))!;
   }
 
   const url = await createOnboardingLink(accountId, baseUrl(), publisherId);

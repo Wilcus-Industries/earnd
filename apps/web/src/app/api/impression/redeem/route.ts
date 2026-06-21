@@ -1,10 +1,11 @@
 import { and, eq, gte, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { ImpressionRedeemResponse } from "@earnd/contracts";
-import { ECONOMICS } from "@earnd/contracts/config";
+import { ECONOMICS, impressionChargeMillicents } from "@earnd/contracts/config";
 import { getDb } from "@/db";
-import { bidHistory, impressions, publishers } from "@/db/schema";
+import { bidHistory, bids, impressions, publishers } from "@/db/schema";
 import {
+  adSpentMillicents,
   advertiserBalanceMillicents,
   lockAdvertiser,
   settleImpression,
@@ -99,11 +100,41 @@ export async function POST(req: Request) {
       minDwellSeconds: p.minDwellSeconds,
     });
 
-    // A held (SIVT) impression bills nothing, so balance only gates billing.
+    // A held (SIVT) impression bills nothing, so balance + budget only gate billing.
+    let bidForAd:
+      | { id: string; budgetMillicents: number; dailyCapMillicents: number | null }
+      | undefined;
     if (verdict.bill) {
       const balance = await advertiserBalanceMillicents(tx, p.advertiserId);
       if (balance < p.chargeMillicents) {
         return { status: "insufficient_balance" as const };
+      }
+
+      // Authoritative per-bid budget + daily-cap stop (the auction filters these
+      // best-effort; this is the row-locked truth). Spend is summed under the
+      // advertiser lock, so concurrent redeems for this ad can't both slip past.
+      const [bidRow] = await tx
+        .select({
+          id: bids.id,
+          budgetMillicents: bids.budgetMillicents,
+          dailyCapMillicents: bids.dailyCapMillicents,
+        })
+        .from(bids)
+        .where(eq(bids.adId, p.adId))
+        .limit(1);
+      if (bidRow) {
+        bidForAd = bidRow;
+        const spent = await adSpentMillicents(tx, p.adId);
+        if (spent + p.chargeMillicents > bidRow.budgetMillicents) {
+          return { status: "budget_exhausted" as const };
+        }
+        if (bidRow.dailyCapMillicents != null) {
+          const dayAgo = new Date(now - 24 * 60 * 60 * 1000);
+          const today = await adSpentMillicents(tx, p.adId, dayAgo);
+          if (today + p.chargeMillicents > bidRow.dailyCapMillicents) {
+            return { status: "daily_cap_reached" as const };
+          }
+        }
       }
     }
 
@@ -159,6 +190,17 @@ export async function POST(req: Request) {
       cpmMillicents: p.clearingCpmMillicents,
       clearingCpmMillicents: p.clearingCpmMillicents,
     });
+
+    // Retire the bid once its remaining budget can't fund even a floor-priced
+    // impression, so a depleted campaign stops competing in the auction instead of
+    // lingering as a perpetual no-win candidate.
+    if (bidForAd) {
+      const spentAfter = await adSpentMillicents(tx, p.adId);
+      const minCharge = impressionChargeMillicents(ECONOMICS.minBidCpmMillicents);
+      if (bidForAd.budgetMillicents - spentAfter < minCharge) {
+        await tx.update(bids).set({ status: "depleted" }).where(eq(bids.id, bidForAd.id));
+      }
+    }
 
     return { status: "ok" as const };
   });

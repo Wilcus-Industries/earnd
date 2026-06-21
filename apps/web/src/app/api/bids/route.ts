@@ -70,11 +70,24 @@ export async function POST(req: Request) {
     if (existing) {
       advertiserId = existing.id;
     } else {
+      // Race-safe upsert: a concurrent first-time bid with the same email blocks on
+      // the unique index, then this returns 0 rows and we re-read the winner — so two
+      // requests can never split a balance across two advertiser rows.
       const [created] = await tx
         .insert(advertisers)
         .values({ email: body.email, name: body.advertiserName })
+        .onConflictDoNothing({ target: advertisers.email })
         .returning({ id: advertisers.id });
-      advertiserId = created.id;
+      if (created) {
+        advertiserId = created.id;
+      } else {
+        const [row] = await tx
+          .select({ id: advertisers.id })
+          .from(advertisers)
+          .where(eq(advertisers.email, body.email))
+          .limit(1);
+        advertiserId = row!.id;
+      }
     }
 
     const [campaign] = await tx

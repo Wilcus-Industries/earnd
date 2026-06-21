@@ -5,7 +5,7 @@
  * settlements can never overspend a balance.
  */
 import { randomUUID } from "node:crypto";
-import { and, eq, isNull, sql, type ExtractTablesWithRelations } from "drizzle-orm";
+import { and, eq, gte, isNull, sql, type ExtractTablesWithRelations } from "drizzle-orm";
 import type { PgTransaction } from "drizzle-orm/pg-core";
 import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js";
 import { publisherAccrualMillicents } from "@earnd/contracts/config";
@@ -53,6 +53,27 @@ export const advertiserBalanceMillicents = (tx: Tx, advertiserId: string) =>
 
 export const publisherEscrowMillicents = (tx: Tx, publisherId: string) =>
   accountBalanceMillicents(tx, "publisher_escrow", publisherId);
+
+/**
+ * Total billed spend attributed to an ad (= a bid's creative), in millicents.
+ * Held/SIVT impressions are stored with chargeMillicents=0, so summing the column
+ * yields billed spend only. Pass `since` to scope it to a window (daily-cap pacing).
+ * Authoritative when read under the advertiser row lock: the ad belongs to a single
+ * advertiser, so concurrent redeems for it serialize on that lock and can't each
+ * read the same stale spend and both slip past the budget.
+ */
+export async function adSpentMillicents(tx: Tx, adId: string, since?: Date): Promise<number> {
+  const rows = await tx
+    .select({ total: sql<string>`COALESCE(SUM(${schema.impressions.chargeMillicents}), 0)` })
+    .from(schema.impressions)
+    .where(
+      and(
+        eq(schema.impressions.adId, adId),
+        since ? gte(schema.impressions.redeemedAt, since) : undefined,
+      ),
+    );
+  return Number(rows[0]?.total ?? 0);
+}
 
 /**
  * Credit an advertiser's balance from a verified Stripe top-up. Balanced by an
@@ -113,7 +134,11 @@ export async function settleImpression(
     return { ok: false, reason: "insufficient_balance" };
   }
 
-  const accrual = publisherAccrualMillicents(args.chargeMillicents);
+  // Split the indivisible leftover millicent ~50/50 across impressions, keyed
+  // deterministically on the impression id, instead of always flooring it to the
+  // platform (the uuid's last hex nibble is uniform, so this is ~unbiased).
+  const roundUp = (parseInt(args.impressionId.replace(/-/g, "").slice(-1), 16) & 1) === 1;
+  const accrual = publisherAccrualMillicents(args.chargeMillicents, roundUp);
   const platformFee = args.chargeMillicents - accrual; // remainder to platform
   const groupId = randomUUID();
 

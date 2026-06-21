@@ -9,11 +9,17 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/earnd/client/internal/config"
 )
+
+// maxResponseBytes caps how much of a response we read, so a malicious or wedged
+// server can't make the client buffer an unbounded body into memory.
+const maxResponseBytes = 1 << 20 // 1 MiB
 
 // Client calls the earnd HTTP API.
 type Client struct {
@@ -73,13 +79,18 @@ func (c *Client) postJSON(ctx context.Context, path string, body, out any) error
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 500 {
-		return fmt.Errorf("%s: server status %d", path, resp.StatusCode)
+	respBody := io.LimitReader(resp.Body, maxResponseBytes)
+	// Any non-2xx is an error. Previously only 5xx was caught, so a 4xx (bad request,
+	// 404 unknown device, 429 rate-limited) decoded into a zero-value struct and read
+	// as a silent success — the caller couldn't tell a real result from a failure.
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		snippet, _ := io.ReadAll(respBody)
+		return fmt.Errorf("%s: status %d: %s", path, resp.StatusCode, strings.TrimSpace(string(snippet)))
 	}
 	if out == nil {
 		return nil
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	return json.NewDecoder(respBody).Decode(out)
 }
 
 // Register binds this install's public key to a publisher; idempotent server-side.

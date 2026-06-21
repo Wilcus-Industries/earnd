@@ -24,7 +24,7 @@ const schema = z.object({
 // dashboardToken is the bearer secret for the publisher's earnings dashboard; the
 // client stores it and prints it via `earnd status`.
 export async function POST(req: Request) {
-  const limit = rateLimit(`register:${clientIp(req)}`, REGISTER_LIMIT, REGISTER_WINDOW_MS);
+  const limit = await rateLimit(`register:${clientIp(req)}`, REGISTER_LIMIT, REGISTER_WINDOW_MS);
   if (!limit.ok) {
     return json(
       { error: "too many registration attempts; try again later" },

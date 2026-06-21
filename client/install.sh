@@ -40,6 +40,15 @@ case "$API_BASE" in
     exit 2 ;;
 esac
 
+# The scheme check alone isn't enough: --api-base is written verbatim into the
+# managed block of your rc file (export EARND_API_BASE="..."). A value containing a
+# quote, $, backtick, ;, or space could break out of that string and inject a command
+# into every future shell (CWE-78). Restrict it to a conservative origin charset.
+if ! printf '%s' "$API_BASE" | grep -Eq '^https?://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~/-]*)?$'; then
+  echo "earnd: --api-base '$API_BASE' contains invalid characters; expected a plain origin like https://earnd.example." >&2
+  exit 2
+fi
+
 # Detect the shell from $SHELL if not given.
 if [ -z "$SHELL_NAME" ]; then
   case "${SHELL##*/}" in

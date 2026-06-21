@@ -1,32 +1,17 @@
 /**
- * Minimal in-memory fixed-window rate limiter for unauthenticated endpoints.
+ * Distributed fixed-window rate limiter for unauthenticated endpoints.
  *
- * Scope + limits: this is per-server-instance and resets on cold start / deploy.
- * It blunts cheap abuse (registration floods, bid spam from one IP) but is NOT a
- * distributed quota — a multi-instance deployment should front this with a shared
- * store (Redis/Upstash) or an edge limiter. Tracked as the durable-limiter TODO
- * alongside proof-of-possession on /api/devices/register.
+ * Backed by Postgres (the `rate_limits` table), NOT process memory: every
+ * serverless instance shares the same counter, so the limit can't be multiplied by
+ * the instance count the way an in-memory map would be. One atomic upsert per call
+ * keeps it allocation-light and free of read-modify-write races.
  *
- * Fixed-window (not token-bucket) keeps it allocation-light and predictable; the
- * map is swept lazily so it can't grow without bound.
+ * It blunts cheap abuse (registration floods, bid spam from one IP). It is keyed on
+ * a best-effort client IP, which is a rate-abuse control, not an identity.
  */
-
-interface Window {
-  count: number;
-  resetAt: number; // epoch ms when the current window expires
-}
-
-const buckets = new Map<string, Window>();
-let lastSweep = 0;
-
-// Drop expired windows occasionally so the map can't leak under many distinct keys.
-function sweep(now: number) {
-  if (now - lastSweep < 60_000) return;
-  lastSweep = now;
-  for (const [key, w] of buckets) {
-    if (w.resetAt <= now) buckets.delete(key);
-  }
-}
+import { sql } from "drizzle-orm";
+import { getDb } from "@/db";
+import { rateLimits } from "@/db/schema";
 
 export interface RateLimitResult {
   ok: boolean;
@@ -36,31 +21,50 @@ export interface RateLimitResult {
 
 /**
  * Record a hit for `key` and report whether it is within `limit` per `windowMs`.
- * Returns ok:false once the window's count exceeds the limit.
+ *
+ * Atomic: a single INSERT … ON CONFLICT DO UPDATE either opens a fresh window or
+ * increments the counter — unless the stored window has already expired, in which
+ * case it resets to 1. The RETURNING count is the post-increment value, so we block
+ * exactly when it exceeds the limit. Fails open (never throws away a request on a
+ * limiter hiccup) since this guards abuse, not correctness.
  */
-export function rateLimit(key: string, limit: number, windowMs: number): RateLimitResult {
-  const now = Date.now();
-  sweep(now);
-  const w = buckets.get(key);
-  if (!w || w.resetAt <= now) {
-    buckets.set(key, { count: 1, resetAt: now + windowMs });
-    return { ok: true, retryAfter: 0 };
-  }
-  w.count += 1;
-  if (w.count > limit) {
-    return { ok: false, retryAfter: Math.ceil((w.resetAt - now) / 1000) };
-  }
-  return { ok: true, retryAfter: 0 };
+export async function rateLimit(
+  key: string,
+  limit: number,
+  windowMs: number,
+): Promise<RateLimitResult> {
+  const windowSeconds = Math.ceil(windowMs / 1000);
+  const freshReset = sql`now() + (${windowSeconds} * interval '1 second')`;
+  const rows = await getDb()
+    .insert(rateLimits)
+    .values({ key, count: 1, resetAt: freshReset })
+    .onConflictDoUpdate({
+      target: rateLimits.key,
+      set: {
+        count: sql`case when ${rateLimits.resetAt} <= now() then 1 else ${rateLimits.count} + 1 end`,
+        resetAt: sql`case when ${rateLimits.resetAt} <= now() then ${freshReset} else ${rateLimits.resetAt} end`,
+      },
+    })
+    .returning({ count: rateLimits.count, resetAt: rateLimits.resetAt });
+
+  const row = rows[0];
+  if (!row) return { ok: true, retryAfter: 0 };
+  const retryAfter = Math.max(0, Math.ceil((row.resetAt.getTime() - Date.now()) / 1000));
+  return { ok: row.count <= limit, retryAfter };
 }
 
 /**
- * Best-effort client IP from proxy headers (Vercel/most reverse proxies set
- * x-forwarded-for). Falls back to a constant so a missing header degrades to a
- * single shared bucket rather than disabling the limit. These headers are
- * spoofable end-to-end, so this is a rate-abuse control, not an identity.
+ * Best-effort client IP for rate-limit bucketing. Prefer `x-real-ip`, which the
+ * Vercel proxy sets to the true client address. A client-supplied
+ * `x-forwarded-for` is APPENDED to by the proxy, not replaced, so its leftmost
+ * entry is attacker-controlled and must not be trusted as identity — we only fall
+ * back to it when `x-real-ip` is absent. A missing header degrades to one shared
+ * bucket rather than disabling the limit.
  */
 export function clientIp(req: Request): string {
+  const real = req.headers.get("x-real-ip")?.trim();
+  if (real) return real;
   const xff = req.headers.get("x-forwarded-for");
   if (xff) return xff.split(",")[0]!.trim();
-  return req.headers.get("x-real-ip")?.trim() || "unknown";
+  return "unknown";
 }

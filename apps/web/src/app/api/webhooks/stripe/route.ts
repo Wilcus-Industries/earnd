@@ -1,5 +1,5 @@
 import type Stripe from "stripe";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import { MILLICENTS_PER_CENT } from "@earnd/contracts/config";
 import { getDb } from "@/db";
 import { lockAdvertiser, postTopup } from "@/db/ledger";
@@ -80,12 +80,36 @@ export async function POST(req: Request) {
 
       case "account.updated": {
         // v1 Connect accounts report status here; v2 recipient accounts are polled
-        // (see lib/connect). Setting the flag is idempotent, so no dedupe needed.
+        // (see lib/connect). Stripe can deliver events out of order and re-deliver
+        // them, so we (a) dedupe on event.id and (b) apply only when this event is
+        // newer than the last one applied to the row — otherwise a stale event could
+        // flip payoutsEnabled back to a wrong value.
         const account = event.data.object as Stripe.Account;
-        await getDb()
-          .update(payoutAccounts)
-          .set({ payoutsEnabled: account.payouts_enabled ?? false })
-          .where(eq(payoutAccounts.stripeAccountId, account.id));
+        const eventTs = new Date(event.created * 1000);
+        await getDb().transaction(async (tx) => {
+          const recorded = await tx
+            .insert(processedWebhookEvents)
+            .values({ eventId: event.id, type: event.type, payload: event as unknown as object })
+            .onConflictDoNothing({ target: processedWebhookEvents.eventId })
+            .returning({ eventId: processedWebhookEvents.eventId });
+          if (recorded.length === 0) return; // already processed — idempotent no-op
+
+          await tx
+            .update(payoutAccounts)
+            .set({
+              payoutsEnabled: account.payouts_enabled ?? false,
+              payoutsEnabledUpdatedAt: eventTs,
+            })
+            .where(
+              and(
+                eq(payoutAccounts.stripeAccountId, account.id),
+                or(
+                  isNull(payoutAccounts.payoutsEnabledUpdatedAt),
+                  lt(payoutAccounts.payoutsEnabledUpdatedAt, eventTs),
+                ),
+              ),
+            );
+        });
         break;
       }
 

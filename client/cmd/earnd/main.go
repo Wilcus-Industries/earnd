@@ -74,7 +74,7 @@ func main() {
 			fmt.Print(render.ClearScreen())
 		}
 	case "status":
-		cmdStatus()
+		cmdStatus(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("earnd", version)
 	default:
@@ -211,7 +211,15 @@ func openURL(u string) {
 	_ = cmd.Start()
 }
 
-func cmdStatus() {
+func cmdStatus(args []string) {
+	fs := flag.NewFlagSet("status", flag.ContinueOnError)
+	// The dashboard token is a bearer secret. Don't print it by default — `status`
+	// output lands in scrollback, screen-shares, and CI logs. Reveal only on request.
+	showToken := fs.Bool("show-token", false, "reveal the dashboard bearer token (a secret)")
+	if err := fs.Parse(args); err != nil {
+		return
+	}
+
 	s, _ := config.Load()
 	dir, _ := config.Dir()
 	state := "off"
@@ -226,7 +234,11 @@ func cmdStatus() {
 		// that actually authorizes reading earnings (paste it into the dashboard).
 		fmt.Printf("dashboard: %s/publisher/%s\n", config.APIBase(), id.PublisherID)
 		if id.DashboardToken != "" {
-			fmt.Printf("dashboard token: %s\n", id.DashboardToken)
+			if *showToken {
+				fmt.Printf("dashboard token: %s\n", id.DashboardToken)
+			} else {
+				fmt.Println("dashboard token: (hidden — run `earnd status --show-token` to reveal)")
+			}
 		}
 	} else {
 		fmt.Println("device: (unregistered — run `earnd register`)")

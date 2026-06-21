@@ -58,13 +58,20 @@ export const payoutStatus = pgEnum("payout_status", [
 ]);
 
 // ── advertisers + campaigns + creatives ─────────────────────────────
-export const advertisers = pgTable("advertisers", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  email: text("email").notNull(),
-  name: text("name").notNull(),
-  stripeCustomerId: text("stripe_customer_id"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const advertisers = pgTable(
+  "advertisers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    name: text("name").notNull(),
+    stripeCustomerId: text("stripe_customer_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // One account per email. The find-or-create in /api/bids races under concurrency
+  // without this; the unique index makes a duplicate insert fail closed so two
+  // first-time bids can't split a balance across two advertiser rows.
+  (t) => [uniqueIndex("advertisers_email_idx").on(t.email)],
+);
 
 export const campaigns = pgTable("campaigns", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -248,16 +255,26 @@ export const bidHistory = pgTable(
 );
 
 // ── Stripe Connect payouts ──────────────────────────────────────────
-export const payoutAccounts = pgTable("payout_accounts", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  publisherId: uuid("publisher_id")
-    .notNull()
-    .references(() => publishers.id, { onDelete: "cascade" }),
-  stripeAccountId: text("stripe_account_id").notNull(),
-  // Set true once account.updated reports onboarding/KYC complete + payouts enabled.
-  payoutsEnabled: boolean("payouts_enabled").notNull().default(false),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const payoutAccounts = pgTable(
+  "payout_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    publisherId: uuid("publisher_id")
+      .notNull()
+      .references(() => publishers.id, { onDelete: "cascade" }),
+    stripeAccountId: text("stripe_account_id").notNull(),
+    // Set true once account.updated reports onboarding/KYC complete + payouts enabled.
+    payoutsEnabled: boolean("payouts_enabled").notNull().default(false),
+    // `created` timestamp of the most recent account.updated event applied to this
+    // row. Stripe can deliver events out of order; we only apply an event whose
+    // timestamp is newer than this, so a stale event can't flip payoutsEnabled back.
+    payoutsEnabledUpdatedAt: timestamp("payouts_enabled_updated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // One connected account per publisher. Without this a concurrent onboarding can
+  // create two accounts and the payout join can fan out duplicate transfers.
+  (t) => [uniqueIndex("payout_accounts_publisher_idx").on(t.publisherId)],
+);
 
 export const payouts = pgTable(
   "payouts",
@@ -283,4 +300,16 @@ export const processedWebhookEvents = pgTable("processed_webhook_events", {
   type: text("type").notNull(),
   payload: jsonb("payload"),
   processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── distributed rate limiting ───────────────────────────────────────
+// Fixed-window counters backing the rate limiter. Lives in Postgres (not process
+// memory) so the limit holds across serverless instances, which each have their
+// own heap and would otherwise multiply the effective limit by the instance count.
+export const rateLimits = pgTable("rate_limits", {
+  // e.g. "register:<ip>" — the bucket key.
+  key: text("key").primaryKey(),
+  count: integer("count").notNull().default(0),
+  // When the current window expires; a hit past this resets the counter to 1.
+  resetAt: timestamp("reset_at", { withTimezone: true }).notNull(),
 });
