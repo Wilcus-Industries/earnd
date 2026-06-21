@@ -7,7 +7,9 @@
     "STRIPE_WEBHOOK_SECRET",
     "STRIPE_PUBLISHABLE_KEY",
     "EARND_TOKEN_SIGNING_KEY",
-    "NEXT_PUBLIC_BASE_URL"
+    "NEXT_PUBLIC_BASE_URL",
+    "EARND_API_BASE",
+    "EARND_ADMIN_TOKEN"
   ],
   "tasks": {
     "build": {
