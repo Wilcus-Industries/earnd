@@ -3,6 +3,10 @@ node_modules/
 .pnp
 .pnp.*
 
+# this is a pnpm workspace — never commit npm/yarn lockfiles (Vercel would pick npm)
+package-lock.json
+yarn.lock
+
 # builds
 .next/
 out/

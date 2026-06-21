@@ -1,0 +1,25 @@
+# Vercel installs deps and builds in the cloud — never upload these.
+node_modules
+**/node_modules
+.next
+**/.next
+.turbo
+**/.turbo
+.git
+coverage
+**/coverage
+dist
+**/dist
+
+# secrets / local env (Vercel uses the project's env vars)
+.env
+.env.*
+
+# go client build artifacts
+client/bin
+client/earnd
+**/*.node
+
+# misc
+*.log
+.DS_Store
