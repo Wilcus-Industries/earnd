@@ -6,14 +6,19 @@ package core
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/earnd/client/internal/auth"
 	"github.com/earnd/client/internal/config"
 )
 
@@ -25,6 +30,11 @@ const maxResponseBytes = 1 << 20 // 1 MiB
 type Client struct {
 	base string
 	http *http.Client
+
+	// Device identity used to sign money-moving requests (begin/heartbeat/redeem).
+	// Unset for the unauthenticated register call, which has no device yet.
+	priv     ed25519.PrivateKey
+	deviceID string
 }
 
 // NewClient builds a client against the configured API base. The transport
@@ -39,6 +49,30 @@ func NewClient() *Client {
 			},
 		},
 	}
+}
+
+// SetIdentity attaches the device key so subsequent requests are Ed25519-signed.
+// Call after the device is registered; register itself stays unsigned.
+func (c *Client) SetIdentity(priv ed25519.PrivateKey, deviceID string) {
+	c.priv = priv
+	c.deviceID = deviceID
+}
+
+// signRequest builds the canonical request string and signs it with the device
+// key. MUST stay byte-for-byte identical to the server's canonicalRequest (see
+// apps/web/src/lib/deviceAuth.ts): deviceId, method, path, timestamp, and the hex
+// SHA-256 of the raw body, newline-separated.
+func (c *Client) signRequest(req *http.Request, path string, body []byte) {
+	if c.priv == nil || c.deviceID == "" {
+		return // unauthenticated (register) — server permits it for that route only
+	}
+	ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	sum := sha256.Sum256(body)
+	msg := c.deviceID + "\n" + http.MethodPost + "\n" + path + "\n" + ts + "\n" + hex.EncodeToString(sum[:])
+	sig := auth.Sign(c.priv, []byte(msg))
+	req.Header.Set("x-earnd-device", c.deviceID)
+	req.Header.Set("x-earnd-timestamp", ts)
+	req.Header.Set("x-earnd-signature", sig)
 }
 
 // Creative is the ad content cached for the surface to render.
@@ -74,6 +108,7 @@ func (c *Client) postJSON(ctx context.Context, path string, body, out any) error
 		return err
 	}
 	req.Header.Set("content-type", "application/json")
+	c.signRequest(req, path, buf)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err

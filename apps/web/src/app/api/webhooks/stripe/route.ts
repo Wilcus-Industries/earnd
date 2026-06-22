@@ -2,7 +2,7 @@ import type Stripe from "stripe";
 import { and, eq, isNull, lt, or } from "drizzle-orm";
 import { MILLICENTS_PER_CENT } from "@earnd/contracts/config";
 import { getDb } from "@/db";
-import { lockAdvertiser, postTopup } from "@/db/ledger";
+import { advertiserBalanceMillicents, lockAdvertiser, postTopup } from "@/db/ledger";
 import { postRefundReversal, reversedForSourceMillicents } from "@/db/payouts";
 import { advertisers, payoutAccounts, processedWebhookEvents } from "@/db/schema";
 import { serverEnv } from "@/env";
@@ -48,8 +48,9 @@ export async function POST(req: Request) {
         const charge = event.data.object as Stripe.Charge;
         const piId = idOf(charge.payment_intent);
         // Throws on a transient PI-lookup failure → 500 → Stripe retries (we must
-        // NOT record the event as processed when attribution merely failed).
-        const advertiserId = await advertiserFromPaymentIntent(stripe, piId);
+        // NOT record the event as processed when attribution merely failed). Returns
+        // null (→ no reversal) unless the PI is a tracked balance_topup.
+        const advertiserId = await topupAdvertiserFromPaymentIntent(stripe, piId);
         // `amount_refunded` is cumulative across partial refunds; reverse only the
         // not-yet-reversed delta, keyed on the CHARGE (separate from disputes).
         await clawback(event, {
@@ -65,7 +66,7 @@ export async function POST(req: Request) {
       case "charge.dispute.created": {
         const dispute = event.data.object as Stripe.Dispute;
         const piId = idOf(dispute.payment_intent);
-        const advertiserId = await advertiserFromPaymentIntent(stripe, piId);
+        const advertiserId = await topupAdvertiserFromPaymentIntent(stripe, piId);
         // Keyed on the DISPUTE id — a charge can be both refunded AND disputed, and
         // the two reversals must not draw down a shared per-charge counter.
         await clawback(event, {
@@ -174,19 +175,25 @@ function idOf(ref: string | { id: string } | null | undefined): string | null {
 }
 
 /**
- * Resolve the advertiser behind a charge via its PaymentIntent metadata. We set
- * `advertiserId` on the PaymentIntent at checkout; charges don't inherit PI metadata,
- * so we retrieve the PI. Returns null ONLY when the PI genuinely carries no
- * advertiserId (a terminal, unattributable state). A retrieve FAILURE propagates as
- * a throw so the caller returns 500 and Stripe retries — a transient lookup error
- * must never be mistaken for "no advertiser" and silently swallow a reversal.
+ * Resolve the advertiser to reverse for a refunded/disputed charge — but ONLY when
+ * the underlying PaymentIntent is one of OUR balance top-ups. We stamp both
+ * `advertiserId` and `kind: "balance_topup"` on the PI at checkout (charges don't
+ * inherit PI metadata, so we retrieve the PI). Requiring the `kind` marker means a
+ * refund on any other charge that happens to carry an advertiserId — or a future
+ * non-topup charge type on this account — can NEVER debit an advertiser for money
+ * that was never credited to their ledger (the reversal would otherwise create a
+ * phantom negative entry). Returns null (→ no reversal, recorded as terminal) when
+ * the PI is absent or not a tracked top-up. A retrieve FAILURE propagates as a throw
+ * so the caller returns 500 and Stripe retries — a transient lookup error must never
+ * be mistaken for "not a top-up" and silently swallow a legitimate reversal.
  */
-async function advertiserFromPaymentIntent(
+async function topupAdvertiserFromPaymentIntent(
   stripe: Stripe,
   paymentIntentId: string | null,
 ): Promise<string | null> {
   if (!paymentIntentId) return null;
   const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
+  if (pi.metadata?.kind !== "balance_topup") return null; // not a tracked top-up — never reverse
   return pi.metadata?.advertiserId ?? null;
 }
 
@@ -234,5 +241,21 @@ async function clawback(
       refId: args.refId,
       reason: args.reason,
     });
+
+    // A reversal can legitimately exceed the remaining balance when the advertiser
+    // already spent the topped-up funds before refunding/disputing — the balance
+    // then goes negative (the advertiser owes us). We do NOT clamp the reversal (the
+    // owed amount is real and must reconcile), but a negative balance is a financial
+    // exception that needs a human: surface a structured alert for monitoring rather
+    // than letting it pass silently. The advertiser is row-locked here, so this read
+    // reflects the just-posted reversal.
+    const balanceAfter = await advertiserBalanceMillicents(tx, args.advertiserId);
+    if (balanceAfter < 0) {
+      console.error(
+        `ALERT negative_advertiser_balance advertiser=${args.advertiserId} ` +
+          `balance_millicents=${balanceAfter} reason=${args.reason} ` +
+          `ref=${args.refType}:${args.refId} event=${event.id}`,
+      );
+    }
   });
 }

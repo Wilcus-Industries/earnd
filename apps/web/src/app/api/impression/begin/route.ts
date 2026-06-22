@@ -1,12 +1,10 @@
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { ImpressionBeginResponse } from "@earnd/contracts";
 import { ECONOMICS } from "@earnd/contracts/config";
 import { runAuction } from "@/auction/engine";
-import { getDb } from "@/db";
-import { devices } from "@/db/schema";
 import { serverEnv } from "@/env";
-import { json, readJson } from "@/lib/api";
+import { json } from "@/lib/api";
+import { readSignedJson } from "@/lib/deviceAuth";
 import { newNonce, signClickToken, signImpressionToken } from "@/lib/tokens";
 
 export const runtime = "nodejs";
@@ -19,22 +17,21 @@ const schema = z.object({
 });
 
 // POST /api/impression/begin — run the auction for this device and issue a
-// single-use, signed impression token gating the impression.
+// single-use, signed impression token gating the impression. The request must be
+// signed by the device's Ed25519 key (the publisher is derived from the verified
+// device, never trusted from the body), so a bare deviceId can't mint tokens.
 export async function POST(req: Request) {
-  const parsed = await readJson(req, schema);
+  const parsed = await readSignedJson(req, schema);
   if (!parsed.ok) return parsed.res;
   const { deviceId, surface } = parsed.data;
   const now = Date.now();
 
-  const device = await getDb()
-    .select({ id: devices.id, publisherId: devices.publisherId })
-    .from(devices)
-    .where(eq(devices.id, deviceId))
-    .limit(1);
-  if (device.length === 0) {
-    return json({ error: "unknown device" }, { status: 404 });
+  // The signing device is authoritative; a body deviceId that disagrees with the
+  // signed identity is rejected rather than silently trusting either.
+  if (deviceId !== parsed.device.deviceId) {
+    return json({ error: "device mismatch" }, { status: 401 });
   }
-  const publisherId = device[0].publisherId;
+  const publisherId = parsed.device.publisherId;
 
   const winner = await runAuction();
   if (!winner) {
