@@ -11,8 +11,10 @@ import {
   settleImpression,
 } from "@/db/ledger";
 import type { Tx } from "@/db/ledger";
-import { json, readJson } from "@/lib/api";
+import { json } from "@/lib/api";
 import { classifyRedemption } from "@/lib/antifraud";
+import { readSignedJson } from "@/lib/deviceAuth";
+import { effectiveDwellSeconds } from "@/lib/dwell";
 import { verifyImpressionToken } from "@/lib/tokens";
 
 export const runtime = "nodejs";
@@ -36,7 +38,7 @@ async function countImpressions(tx: Tx, where: ReturnType<typeof and>): Promise<
 // Server-authoritative throughout: the client cannot self-report a count, only
 // redeem a single-use signed token, and only if every gate passes.
 export async function POST(req: Request) {
-  const parsed = await readJson(req, schema);
+  const parsed = await readSignedJson(req, schema);
   if (!parsed.ok) return parsed.res;
   const { impressionToken, displayedSeconds } = parsed.data;
 
@@ -44,10 +46,21 @@ export async function POST(req: Request) {
   const p = verifyImpressionToken(impressionToken);
   if (!p) return deny("expired");
 
-  // 2. Dwell gate (viewability analog).
-  if (displayedSeconds < p.minDwellSeconds) return deny("dwell_unmet");
+  // 1a. The redeemer must be the device the token was issued to. Even with a valid
+  // signature from some other registered device, a token can only be redeemed by its
+  // own device — so a leaked token can't be cashed in by a different publisher.
+  if (parsed.device.deviceId !== p.deviceId) return deny("device_mismatch");
 
   const now = Date.now();
+
+  // 2. Dwell gate (viewability analog) — server-authoritative. `displayedSeconds`
+  // is the client's claim; we clamp it to the wall-clock time actually elapsed since
+  // the token was issued (`issuedAt` is signed into the token), so an inflated value
+  // cannot clear the gate early or skew the fraud classifier. This is the headline
+  // anti-fraud guarantee; without the clamp it was bypassable in milliseconds.
+  const effectiveDwell = effectiveDwellSeconds(p.issuedAt, now, displayedSeconds);
+  if (effectiveDwell < p.minDwellSeconds) return deny("dwell_unmet");
+
   const since1h = new Date(now - 60 * 60 * 1000);
   const sinceSivt = new Date(now - ECONOMICS.sivtHoldWindowHours * 60 * 60 * 1000);
 
@@ -96,7 +109,7 @@ export async function POST(req: Request) {
       deviceRecent,
       publisherRecent,
       publisherRecentSivt,
-      displayedSeconds,
+      displayedSeconds: effectiveDwell,
       minDwellSeconds: p.minDwellSeconds,
     });
 
@@ -151,7 +164,7 @@ export async function POST(req: Request) {
         surface: p.surface,
         clearingCpmMillicents: p.clearingCpmMillicents,
         chargeMillicents: verdict.bill ? p.chargeMillicents : 0,
-        dwellSeconds: Math.floor(displayedSeconds),
+        dwellSeconds: Math.floor(effectiveDwell),
         validation: verdict.validation,
       })
       .onConflictDoNothing({ target: impressions.nonce })

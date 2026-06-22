@@ -52,6 +52,13 @@ func Tick(surface string, width int) {
 	}
 
 	cl := NewClient()
+	// Attach the device key so begin/heartbeat/redeem are Ed25519-signed; without a
+	// valid signature the server now rejects them, so an unsigned client earns nothing.
+	if priv, keyErr := auth.LoadOrCreateKey(); keyErr == nil {
+		cl.SetIdentity(priv, id.DeviceID)
+	} else {
+		return // can't sign → can't transact; try again next tick
+	}
 	sess, _ := LoadSession()
 	now := time.Now().Unix()
 

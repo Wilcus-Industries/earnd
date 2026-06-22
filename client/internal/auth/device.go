@@ -2,8 +2,9 @@
 //
 // On first use the client generates an Ed25519 keypair stored 0600 under the
 // config dir. The public key is registered with the server and bound to a
-// publisher; the private key signs session calls (forward-compatible — the v1
-// server records the device by id, signature verification is task 10 hardening).
+// publisher; the private key signs every money-moving request (begin/heartbeat/
+// redeem), which the server verifies against the registered public key before
+// issuing or redeeming a billing token.
 package auth
 
 import (
@@ -83,7 +84,8 @@ func PublicKeyB64(priv ed25519.PrivateKey) string {
 	return base64.StdEncoding.EncodeToString(pub)
 }
 
-// Sign returns a base64 signature over msg (used for future signed sessions).
+// Sign returns a base64 (std) Ed25519 signature over msg. Used to authenticate
+// each impression-lifecycle request against the device's registered public key.
 func Sign(priv ed25519.PrivateKey, msg []byte) string {
 	return base64.StdEncoding.EncodeToString(ed25519.Sign(priv, msg))
 }
