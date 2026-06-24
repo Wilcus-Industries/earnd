@@ -15,6 +15,14 @@ export function SiteFooter() {
           <Link href="/bid" className="hover:text-ink-dim">advertise</Link>
           <Link href="/publisher" className="hover:text-ink-dim">earn</Link>
           <Link href="/privacy" className="hover:text-ink-dim">what we send</Link>
+          <a
+            href="https://github.com/Wilcus-Industries/earnd"
+            target="_blank"
+            rel="noreferrer"
+            className="hover:text-ink-dim"
+          >
+            github
+          </a>
         </div>
       </div>
     </footer>
