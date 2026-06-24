@@ -34,6 +34,15 @@ const serverSchema = z.object({
       message: "EARND_ADMIN_TOKEN is still the placeholder — set a real secret",
     })
     .optional(),
+  // better-auth session encryption secret. Required at runtime; lazy so build
+  // doesn't need it. Generate: openssl rand -base64 32
+  BETTER_AUTH_SECRET: z
+    .string()
+    .min(16, "BETTER_AUTH_SECRET must be >= 16 chars")
+    .refine(notPlaceholder("BETTER_AUTH_SECRET is still the placeholder — set a real secret"), {
+      message: "BETTER_AUTH_SECRET is still the placeholder — set a real secret",
+    })
+    .optional(),
 });
 
 export type ServerEnv = z.infer<typeof serverSchema>;

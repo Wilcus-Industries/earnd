@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@earnd/contracts": "workspace:*",
+    "better-auth": "^1.6.20",
     "drizzle-orm": "^0.45.2",
     "frimousse": "^0.3.0",
     "next": "16.2.9",

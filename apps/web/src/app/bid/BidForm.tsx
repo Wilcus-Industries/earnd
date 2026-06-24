@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { EmojiPicker } from "frimousse";
 
 type Status =
@@ -11,9 +12,13 @@ type Status =
   | { kind: "topup_success" }
   | { kind: "topup_cancelled" };
 
-export function BidForm({ liveMode }: { liveMode: boolean }) {
-  const [advertiserName, setAdvertiserName] = useState("");
-  const [email, setEmail] = useState("");
+export function BidForm({
+  liveMode,
+  user,
+}: {
+  liveMode: boolean;
+  user: { name: string; email: string } | null;
+}) {
   const [line, setLine] = useState("");
   const [targetUrl, setTargetUrl] = useState("");
   const [displayUrl, setDisplayUrl] = useState("");
@@ -48,8 +53,6 @@ export function BidForm({ liveMode }: { liveMode: boolean }) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          advertiserName,
-          email,
           line,
           targetUrl,
           displayUrl: displayUrl || undefined,
@@ -60,10 +63,13 @@ export function BidForm({ liveMode }: { liveMode: boolean }) {
       });
       const bid = await bidRes.json();
       if (!bidRes.ok) {
+        if (bidRes.status === 401) {
+          window.location.href = `/sign-in?redirect=${encodeURIComponent("/bid")}`;
+          return;
+        }
         setStatus({ kind: "error", message: bid.error ?? "Could not create the bid." });
         return;
       }
-
       // Fund the advertiser → redirect to Stripe Checkout. The ledger is credited
       // only by the verified webhook, never here.
       const coRes = await fetch("/api/checkout", {
@@ -112,26 +118,11 @@ export function BidForm({ liveMode }: { liveMode: boolean }) {
       {status.kind === "error" && <Notice tone="error">{status.message}</Notice>}
 
       <div className="grid gap-10 lg:grid-cols-[1fr_0.9fr] lg:items-start">
+        {user ? (
         <form onSubmit={onSubmit} className="flex flex-col gap-5">
-          <Field label="Your name">
-            <input
-              required
-              value={advertiserName}
-              onChange={(e) => setAdvertiserName(e.target.value)}
-              className={inputCls}
-              placeholder="Acme Inc."
-            />
-          </Field>
-          <Field label="Email" hint="Receipts and moderation updates go here.">
-            <input
-              required
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className={inputCls}
-              placeholder="ads@acme.com"
-            />
-          </Field>
+          <p className="font-mono text-[11px] text-ink-dim">
+            Signed in as <span className="text-ink">{user.email}</span>. Bids are billed to this account.
+          </p>
           <Field label="Banner line" hint={`${line.length}/140 shown · control characters are stripped`}>
             <input
               required
@@ -211,6 +202,21 @@ export function BidForm({ liveMode }: { liveMode: boolean }) {
             </p>
           )}
         </form>
+        ) : (
+          <div className="rounded-lg border border-wire bg-panel/30 p-6">
+            <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-signal">sign in required</p>
+            <p className="mt-2 text-ink-dim">
+              You need an advertiser account to place a bid. Sign in or create one — it takes a
+              minute — then come back to fund your banner.
+            </p>
+            <Link
+              href={`/sign-in?redirect=${encodeURIComponent("/bid")}`}
+              className="mt-4 inline-block rounded-sm bg-signal px-5 py-3 font-mono text-sm font-semibold text-canvas transition-opacity hover:opacity-90"
+            >
+              sign in to place a bid →
+            </Link>
+          </div>
+        )}
 
         {/* Signature: a live row-1 banner preview — the product showing itself. */}
         <aside className="lg:sticky lg:top-8">
