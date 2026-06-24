@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0f140e"/>
+      <stop offset="1" stop-color="#0a0e0a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- rounded-square app-icon background -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <!-- lowercase "e": crossbar + open bowl, drawn as clean stroked arcs -->
+  <g stroke="#ff7a1a" stroke-width="44" stroke-linecap="round" fill="none">
+    <!-- crossbar -->
+    <line x1="172" y1="268" x2="342" y2="268"/>
+    <!-- bowl: from crossbar's right end, up over the top, around, down to the open mouth -->
+    <path d="M342 268 A86 86 0 1 0 318 330"/>
+  </g>
+
+</svg>
