@@ -175,7 +175,7 @@ export function BidForm({
                 <span className="font-mono text-xs text-ink-faint">/1k</span>
               </div>
             </Field>
-            <Field label="Budget" hint="You fund this now. Min $20.">
+            <Field label="Budget" hint="You fund this now. Min $5.">
               <div className="flex items-center gap-2">
                 <span className="font-mono text-ink-faint">$</span>
                 <input
