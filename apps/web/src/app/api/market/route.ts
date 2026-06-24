@@ -1,7 +1,7 @@
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import type { MarketLeaderRow, MarketSeries, MarketSnapshot } from "@earnd/contracts";
 import { getDb } from "@/db";
-import { ads, advertisers, bidHistory, bids, impressions } from "@/db/schema";
+import { ads, advertisers, bidHistory, bids, impressions, ledgerEntries } from "@/db/schema";
 
 export const runtime = "nodejs";
 
@@ -24,7 +24,19 @@ export async function GET() {
   const sinceSeries = new Date(now - SERIES_WINDOW_MS);
   const since10m = new Date(now - 10 * 60 * 1000);
 
-  // Top active+approved bids, highest CPM first; one representative line per bid.
+  // Advertisers whose advertiser_balance ledger is positive — i.e. funded enough
+  // to actually serve. An unfunded bid never wins an auction (redeem re-checks
+  // balance under lock), so it must not surface as live inventory on the board.
+  const fundedAdvertiserIds = db
+    .select({ id: ledgerEntries.ownerId })
+    .from(ledgerEntries)
+    .where(eq(ledgerEntries.account, "advertiser_balance"))
+    .groupBy(ledgerEntries.ownerId)
+    .having(
+      sql`COALESCE(SUM(CASE WHEN ${ledgerEntries.direction} = 'credit' THEN ${ledgerEntries.amountMillicents} ELSE -${ledgerEntries.amountMillicents} END), 0) > 0`,
+    );
+
+  // Top active+approved+funded bids, highest CPM first; one representative line per bid.
   const activeBids = await db
     .select({
       advertiserId: advertisers.id,
@@ -35,7 +47,13 @@ export async function GET() {
     .from(bids)
     .innerJoin(advertisers, eq(advertisers.id, bids.advertiserId))
     .innerJoin(ads, eq(ads.id, bids.adId))
-    .where(and(eq(bids.status, "active"), eq(ads.moderation, "approved")))
+    .where(
+      and(
+        eq(bids.status, "active"),
+        eq(ads.moderation, "approved"),
+        inArray(bids.advertiserId, fundedAdvertiserIds),
+      ),
+    )
     .orderBy(sql`${bids.maxCpmMillicents} DESC`);
 
   // Lifetime spend per advertiser (sum of billed impression charges).
@@ -98,7 +116,14 @@ export async function GET() {
   const [{ n: live } = { n: "0" }] = await db
     .select({ n: sql<string>`count(DISTINCT ${bids.campaignId})` })
     .from(bids)
-    .where(eq(bids.status, "active"));
+    .innerJoin(ads, eq(ads.id, bids.adId))
+    .where(
+      and(
+        eq(bids.status, "active"),
+        eq(ads.moderation, "approved"),
+        inArray(bids.advertiserId, fundedAdvertiserIds),
+      ),
+    );
 
   // Residual IVT rate over the trailing 24h: held (non-valid) / total recorded.
   const since24h = new Date(now - 24 * 60 * 60 * 1000);
