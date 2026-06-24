@@ -7,6 +7,7 @@ beforeAll(() => {
   process.env.DATABASE_URL = "postgres://localhost/test";
   process.env.STRIPE_SECRET_KEY = "sk_test_x";
   process.env.STRIPE_WEBHOOK_SECRET = "whsec_test_x";
+  process.env.BETTER_AUTH_SECRET = "test-better-auth-secret-32-chars-min";
 });
 
 const impressionPayload = {
