@@ -1,4 +1,8 @@
+import type { Metadata } from "next";
 import { SignIn } from "@/components/SignIn";
+import { noindexMetadata } from "@/lib/seo";
+
+export const metadata: Metadata = noindexMetadata("Sign in");
 
 // Server component shell. The client <SignIn /> handles both sign-in and
 // account creation and redirects to ?redirect (default /advertiser) on success.

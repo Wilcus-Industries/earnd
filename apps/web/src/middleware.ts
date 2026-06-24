@@ -36,6 +36,20 @@ function buildCsp(nonce: string, isProd: boolean): string {
   ].join("; ");
 }
 
+// Gated / non-public routes that must never be indexed. Set via response header
+// (X-Robots-Tag) rather than per-page `metadata` because several of these pages
+// are client components ("use client"), which cannot export `metadata`. One
+// place, covers every gated route, and complements the robots.txt disallow.
+// "/publisher/" (trailing slash) matches the token-gated dashboards at
+// /publisher/[id] but NOT the public install page at "/publisher".
+const NOINDEX_PREFIXES = [
+  "/sign-in",
+  "/advertiser",
+  "/bid",
+  "/admin",
+  "/publisher/",
+];
+
 export async function middleware(req: NextRequest) {
   if (req.nextUrl.pathname.startsWith("/advertiser")) {
     const sessionCookie = getSessionCookie(req);
@@ -58,6 +72,10 @@ export async function middleware(req: NextRequest) {
 
   const res = NextResponse.next({ request: { headers: requestHeaders } });
   res.headers.set("Content-Security-Policy", csp);
+
+  if (NOINDEX_PREFIXES.some((p) => req.nextUrl.pathname.startsWith(p))) {
+    res.headers.set("X-Robots-Tag", "noindex, nofollow");
+  }
   return res;
 }
 

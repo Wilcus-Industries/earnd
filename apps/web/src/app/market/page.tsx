@@ -1,5 +1,14 @@
+import type { Metadata } from "next";
 import type { MarketSnapshot } from "@earnd/contracts";
 import { MarketBoard } from "@/components/MarketBoard";
+import { pageMetadata } from "@/lib/seo";
+
+export const metadata: Metadata = pageMetadata({
+  title: "The bid market",
+  description:
+    "Live clearing prices for a developer's terminal top row — top bidders over time and the invalid-traffic rate, aggregated and slightly delayed so the auction stays honest.",
+  path: "/market",
+});
 
 // Rendered per request (live data); the server does the first fetch for fast
 // paint + SEO, then the client island polls.

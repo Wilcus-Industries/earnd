@@ -1,11 +1,29 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { CopyButton } from "@/components/CopyButton";
+import { JsonLd } from "@/components/JsonLd";
+import { GITHUB_URL, pageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "earn — run the banner",
+export const metadata: Metadata = pageMetadata({
+  title: "Run the banner — earn from your terminal",
   description:
-    "Install the earnd client and keep 50% of every server-confirmed impression your terminal earns.",
+    "Install the open-source earnd client and keep 50% of every server-confirmed impression your terminal earns. A tiny Go client, one sanitized line, no artificial cap.",
+  path: "/publisher",
+});
+
+// The Go client is a downloadable developer tool — describe it as a
+// SoftwareApplication so it can surface in software/app rich results.
+const appSchema = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "earnd client",
+  applicationCategory: "DeveloperApplication",
+  operatingSystem: "macOS, Linux, Windows",
+  description:
+    "A security-hardened terminal banner client. Pins one sanitized ad line above your shell prompt and earns you 50% of every server-confirmed impression.",
+  downloadUrl: GITHUB_URL,
+  isAccessibleForFree: true,
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
 };
 
 // Point the installed client at the deployed origin. Falls back to local dev so
@@ -17,6 +35,7 @@ const INSTALL = `git clone https://github.com/Wilcus-Industries/earnd && ./earnd
 export default function PublisherPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-12">
+      <JsonLd data={appSchema} />
       <header className="mb-8 flex flex-col gap-3">
         <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-signal">run the banner</p>
         <h1 className="font-display text-4xl font-bold tracking-tight text-ink sm:text-5xl">
