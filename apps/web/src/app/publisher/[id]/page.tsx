@@ -51,14 +51,16 @@ export default function PublisherDashboard() {
       }
       setData(await res.json());
       setAuthed(true);
-      window.localStorage.setItem(tokenKey, tok);
+      // sessionStorage (not localStorage): the bearer token is cleared when the
+      // tab closes and isn't retained on a shared machine. Mirrors the admin page.
+      window.sessionStorage.setItem(tokenKey, tok);
     },
     [id, tokenKey],
   );
 
   // Restore a saved token and run any post-onboarding refresh, once on mount.
   useEffect(() => {
-    const saved = window.localStorage.getItem(tokenKey);
+    const saved = window.sessionStorage.getItem(tokenKey);
     if (!saved) return;
     const params = new URLSearchParams(window.location.search);
     const init = async () => {
