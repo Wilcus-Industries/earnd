@@ -20,3 +20,14 @@ export function getStripe(): Stripe {
   });
   return _stripe;
 }
+
+/**
+ * Whether the configured Stripe key is a LIVE key. Read raw from process.env
+ * (not serverEnv) so callers in always-rendered chrome — e.g. the site footer —
+ * never throw when the full server schema is incomplete; an unset/test key just
+ * reads as not-live. Covers both secret (sk_) and restricted (rk_) live keys.
+ */
+export function stripeLiveMode(): boolean {
+  const k = process.env.STRIPE_SECRET_KEY ?? "";
+  return k.startsWith("sk_live_") || k.startsWith("rk_live_");
+}

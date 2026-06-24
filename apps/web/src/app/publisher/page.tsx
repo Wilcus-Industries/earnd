@@ -31,9 +31,9 @@ export default function PublisherPage() {
       </header>
 
       {/* The install command is the hero — this page is for people at a terminal. */}
-      <div className="mb-3 flex items-center gap-3 rounded-md border border-wire bg-[#070A07] px-4 py-3 font-mono text-sm">
+      <div className="mb-3 flex items-start gap-3 rounded-md border border-wire bg-[#070A07] px-4 py-3 font-mono text-sm">
         <span className="text-ink-faint">$</span>
-        <code className="flex-1 truncate text-ink">{INSTALL}</code>
+        <code className="flex-1 whitespace-pre-wrap break-all text-ink">{INSTALL}</code>
         <CopyButton value={INSTALL} />
       </div>
       <p className="mb-10 font-mono text-[11px] text-ink-faint">
