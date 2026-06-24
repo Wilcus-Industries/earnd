@@ -37,7 +37,7 @@ export const ECONOMICS = {
   /** Bids are CPM — price per 1,000 impressions. Minimum $1 / 1,000. */
   minBidCpmMillicents: dollarsToMillicents(1), // 100_000 mc per 1,000 imps
   /** Minimum advertiser top-up via Stripe Checkout. */
-  minTopUpMillicents: dollarsToMillicents(20),
+  minTopUpMillicents: dollarsToMillicents(5),
   /** GSP minimum increment over the next-highest bid, in CPM millicents. */
   gspIncrementMillicents: dollarsToMillicents(0.01),
 

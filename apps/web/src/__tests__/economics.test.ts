@@ -26,9 +26,9 @@ describe("earnd economics (integer millicents)", () => {
     expect(publisherAccrualMillicents(101)).toBe(50);
   });
 
-  it("min bid is $1 CPM and min top-up is $20", () => {
+  it("min bid is $1 CPM and min top-up is $5", () => {
     expect(ECONOMICS.minBidCpmMillicents).toBe(100_000);
-    expect(ECONOMICS.minTopUpMillicents).toBe(2_000_000);
+    expect(ECONOMICS.minTopUpMillicents).toBe(500_000);
   });
 
   it("publisher share is 50%", () => {

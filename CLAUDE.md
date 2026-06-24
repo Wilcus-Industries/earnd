@@ -142,7 +142,7 @@ Economics constants live in `packages/contracts/src/config.ts` (see below). Scri
 ## Shared contracts (`packages/contracts`)
 `@earnd/contracts`, private, exports `"."` (→ `src/index.ts`) and `"./config"` (→ `src/config.ts`). **Plain TS types, no Zod.**
 - `api.ts` — `Surface` (shell|tmux|vim), `Creative`, and request/response types for begin/heartbeat/redeem/market. The client↔server contract.
-- `config.ts` — millicent helpers (`dollarsToMillicents`, `formatMillicents`, `impressionChargeMillicents`, `publisherAccrualMillicents`) and the `ECONOMICS` const: min bid $1 CPM, min top-up $20, GSP increment $0.01, publisher share 50% (5000 bps), payout threshold $25, escrow hold 30 days, token TTL 120s, min dwell 5s (+0–3s jitter), GIVT/SIVT rate bands, 24h SIVT hold window.
+- `config.ts` — millicent helpers (`dollarsToMillicents`, `formatMillicents`, `impressionChargeMillicents`, `publisherAccrualMillicents`) and the `ECONOMICS` const: min bid $1 CPM, min top-up $5, GSP increment $0.01, publisher share 50% (5000 bps), payout threshold $25, escrow hold 30 days, token TTL 120s, min dwell 5s (+0–3s jitter), GIVT/SIVT rate bands, 24h SIVT hold window.
 
 Change economics here, not in scattered constants — both web and (conceptually) the client depend on these values.
 
