@@ -70,8 +70,26 @@ if ! command -v go >/dev/null 2>&1; then
   exit 1
 fi
 mkdir -p "$PREFIX"
+
+# Capture the commit being built and the origin to track, for auto-update. The commit
+# is embedded in the binary (ldflags) and compared against origin/main at runtime; the
+# remote URL is recorded in install.json so the updater fetches from a fixed, trusted
+# origin (never a runtime-supplied one).
+GIT_COMMIT="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
+REMOTE_URL="$(git -C "$SCRIPT_DIR" config --get remote.origin.url 2>/dev/null || true)"
+# Path of this script relative to the repo root, so the auto-updater finds install.sh
+# inside the managed clone (this repo keeps it under client/, not at the root).
+REPO_TOP="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -n "$REPO_TOP" ] && [ "$SCRIPT_DIR" != "$REPO_TOP" ]; then
+  INSTALL_SCRIPT="${SCRIPT_DIR#"$REPO_TOP"/}/install.sh"
+else
+  INSTALL_SCRIPT="install.sh"
+fi
+
 echo "Building earnd…"
-( cd "$SCRIPT_DIR" && CGO_ENABLED=0 go build -o "$PREFIX/earnd" ./cmd/earnd )
+( cd "$SCRIPT_DIR" && CGO_ENABLED=0 go build \
+    -ldflags "-X github.com/earnd/client/internal/core.BuildCommit=$GIT_COMMIT" \
+    -o "$PREFIX/earnd" ./cmd/earnd )
 echo "Installed $PREFIX/earnd"
 
 # 2. Install the shim into the earnd config dir.
@@ -111,6 +129,21 @@ fi
   echo "$END"
 } >> "$RC"
 echo "Wired earnd into $RC"
+
+# 3b. Record install metadata so the client can auto-update from the same origin with
+# the same options. REMOTE_URL is JSON-escaped (backslash + quote); API_BASE/SHELL/
+# PREFIX are already constrained or trusted local values.
+esc_json() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+{
+  printf '{\n'
+  printf '  "remoteURL": "%s",\n' "$(esc_json "$REMOTE_URL")"
+  printf '  "branch": "main",\n'
+  printf '  "installScript": "%s",\n' "$(esc_json "$INSTALL_SCRIPT")"
+  printf '  "apiBase": "%s",\n' "$(esc_json "$API_BASE")"
+  printf '  "shell": "%s",\n' "$(esc_json "$SHELL_NAME")"
+  printf '  "prefix": "%s"\n' "$(esc_json "$PREFIX")"
+  printf '}\n'
+} > "$CONF_DIR/install.json"
 
 # 4. Register this device (creates the keypair + publisher binding).
 echo

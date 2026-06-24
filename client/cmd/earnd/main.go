@@ -49,6 +49,10 @@ func main() {
 		cmdRender(os.Args[2:])
 	case "tick":
 		cmdTick(os.Args[2:])
+	case "self-update":
+		// Internal: spawned detached by a tick. Fetches origin/main and reinstalls if
+		// the binary is behind. Silent no-op when there's nothing to do. Not in usage().
+		core.SelfUpdate()
 	case "register":
 		cmdRegister()
 	case "open":
@@ -76,7 +80,7 @@ func main() {
 	case "status":
 		cmdStatus(os.Args[2:])
 	case "version", "--version", "-v":
-		fmt.Println("earnd", version)
+		fmt.Printf("earnd %s (%s)\n", version, core.BuildCommit)
 	default:
 		usage()
 		os.Exit(2)
@@ -132,7 +136,15 @@ func cmdRender(args []string) {
 		fmt.Print(render.Release())
 		return
 	}
-	fmt.Print(render.Draw(render.Banner{Line: c.Line, URL: c.ClickURL, Icon: c.Icon}, *width, *rows))
+	// Lightly surface that the client auto-updated: show a right-aligned notice for a
+	// few prompts, decrementing the countdown each render until it clears itself.
+	status := ""
+	if us := config.LoadUpdateState(); us.RendersLeft > 0 {
+		status = "⟳ updated"
+		us.RendersLeft--
+		_ = config.SaveUpdateState(us)
+	}
+	fmt.Print(render.Draw(render.Banner{Line: c.Line, URL: c.ClickURL, Icon: c.Icon, Status: status}, *width, *rows))
 }
 
 func cmdTick(args []string) {
@@ -226,8 +238,8 @@ func cmdStatus(args []string) {
 	if s.Enabled {
 		state = "on"
 	}
-	fmt.Printf("earnd %s\nstate: %s\nonline(cached): %v\napi: %s\nconfig: %s\n",
-		version, state, core.CachedOnline(core.OnlineTTL), config.APIBase(), dir)
+	fmt.Printf("earnd %s (%s)\nstate: %s\nonline(cached): %v\napi: %s\nconfig: %s\n",
+		version, core.BuildCommit, state, core.CachedOnline(core.OnlineTTL), config.APIBase(), dir)
 	if id, err := auth.LoadIdentity(); err == nil {
 		fmt.Printf("device: %s\npublisher: %s\n", id.DeviceID, id.PublisherID)
 		// The dashboard URL routes by publisher id; the token is the bearer secret

@@ -46,6 +46,10 @@ func Tick(surface string, width int) {
 		return // offline: don't register, don't auction, leave the banner hidden
 	}
 
+	// Online and confirmed: piggyback the throttled auto-update check here. It's a
+	// cheap file-stat; any real work runs in a detached child so this never blocks.
+	maybeSpawnUpdate()
+
 	id, err := ensureRegistered(ctx)
 	if err != nil {
 		return
