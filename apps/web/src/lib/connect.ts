@@ -19,6 +19,9 @@ export async function createConnectAccount(email: string): Promise<string> {
   const account = await getStripe().v2.core.accounts.create({
     contact_email: email,
     display_name: "earnd publisher",
+    // Stripe v2 requires identity.country before defaults.currency can be set.
+    // earnd settles in USD, so publishers onboard as US recipients for now.
+    identity: { country: "US" },
     // Recipients don't need a Stripe dashboard; earnd is their interface.
     dashboard: "none",
     defaults: {
