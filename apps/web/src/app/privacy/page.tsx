@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "what we send",
+export const metadata: Metadata = pageMetadata({
+  title: "What we send — data disclosure",
   description:
-    "Exactly what the earnd client transmits — device id, OS, surface, and display-dwell timing. Never command contents or keystrokes.",
-};
+    "Exactly what the earnd client transmits — device id, OS, surface, and display-dwell timing. Never command contents, keystrokes, working directory, or history.",
+  path: "/privacy",
+});
 
 const SENT = [
   ["device id", "A per-install random identifier bound to your publisher account."],

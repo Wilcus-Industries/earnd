@@ -1,5 +1,14 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { LiveStrip } from "@/components/LiveStrip";
+import { pageMetadata } from "@/lib/seo";
+
+export const metadata: Metadata = pageMetadata({
+  title: "The terminal's top row is inventory",
+  description:
+    "One sanitized line, pinned above your prompt while you work. Advertisers bid CPM for it; the developer who runs the banner keeps 50% of every impression it earns.",
+  path: "/",
+});
 
 export default function Home() {
   return (
