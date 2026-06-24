@@ -15,7 +15,7 @@ export function getStripe(): Stripe {
   if (_stripe) return _stripe;
   _stripe = new Stripe(serverEnv().STRIPE_SECRET_KEY, {
     apiVersion: "2026-05-27.dahlia",
-    appInfo: { name: "earnd", url: "https://earnd.dev" },
+    appInfo: { name: "earnd", url: "https://www.earnd.dev" },
     typescript: true,
   });
   return _stripe;

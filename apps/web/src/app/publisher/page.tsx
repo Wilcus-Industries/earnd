@@ -8,7 +8,11 @@ export const metadata: Metadata = {
     "Install the earnd client and keep 50% of every server-confirmed impression your terminal earns.",
 };
 
-const INSTALL = "git clone https://github.com/Wilcus-Industries/earnd && ./earnd/client/install.sh";
+// Point the installed client at the deployed origin. Falls back to local dev so
+// `next build` and localhost work without env. install.sh enforces https for any
+// non-loopback --api-base, so the prod value must be the real https origin.
+const API_BASE = process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000";
+const INSTALL = `git clone https://github.com/Wilcus-Industries/earnd && ./earnd/client/install.sh --api-base ${API_BASE}`;
 
 export default function PublisherPage() {
   return (
