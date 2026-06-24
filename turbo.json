@@ -9,7 +9,8 @@
     "EARND_TOKEN_SIGNING_KEY",
     "NEXT_PUBLIC_BASE_URL",
     "EARND_API_BASE",
-    "EARND_ADMIN_TOKEN"
+    "EARND_ADMIN_TOKEN",
+    "BETTER_AUTH_SECRET"
   ],
   "tasks": {
     "build": {
