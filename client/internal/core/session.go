@@ -97,7 +97,6 @@ func redeemSettled(ctx context.Context, cl *Client, token string, displayed floa
 	}
 	return false
 }
-
 func beginFresh(ctx context.Context, cl *Client, deviceID, surface string, width int) {
 	res, err := cl.Begin(ctx, deviceID, surface, width)
 	if err != nil {
