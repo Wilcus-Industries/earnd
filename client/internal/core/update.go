@@ -127,8 +127,10 @@ func SelfUpdate() {
 // are refreshed. Output is discarded; success is the process exit code.
 func runInstall(src string, meta config.InstallMeta) bool {
 	rel := meta.InstallScript
-	if rel == "" {
-		rel = "install.sh" // back-compat: assume repo-root install.sh
+	if rel == "" || filepath.IsAbs(rel) {
+		// Empty: pre-metadata install. Absolute: a stale/foreign path that must not be
+		// joined onto src. Fall back to the repo-root install.sh.
+		rel = "install.sh"
 	}
 	script := filepath.Join(src, rel)
 	args := []string{script}

@@ -79,12 +79,11 @@ GIT_COMMIT="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
 REMOTE_URL="$(git -C "$SCRIPT_DIR" config --get remote.origin.url 2>/dev/null || true)"
 # Path of this script relative to the repo root, so the auto-updater finds install.sh
 # inside the managed clone (this repo keeps it under client/, not at the root).
-REPO_TOP="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
-if [ -n "$REPO_TOP" ] && [ "$SCRIPT_DIR" != "$REPO_TOP" ]; then
-  INSTALL_SCRIPT="${SCRIPT_DIR#"$REPO_TOP"/}/install.sh"
-else
-  INSTALL_SCRIPT="install.sh"
-fi
+# --show-prefix yields the repo-relative subdir of SCRIPT_DIR ("client/", or empty at
+# the root) and is symlink-safe, unlike subtracting --show-toplevel from pwd (which
+# breaks on macOS where /var resolves to /private/var).
+REPO_PREFIX="$(git -C "$SCRIPT_DIR" rev-parse --show-prefix 2>/dev/null || true)"
+INSTALL_SCRIPT="${REPO_PREFIX}install.sh"
 
 echo "Building earnd…"
 ( cd "$SCRIPT_DIR" && CGO_ENABLED=0 go build \
