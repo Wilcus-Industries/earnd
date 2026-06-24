@@ -27,10 +27,13 @@ const (
 	clearLine     = esc + "[K"
 	gotoHome      = esc + "[1;1H"
 
-	// Banner row styling: black text on an orange background (truecolor SGR).
-	// Set BEFORE clearLine so ESC[K paints the whole row orange via background-
-	// color-erase; resetStyle stops the color bleeding past row 1.
-	bannerStyle = esc + "[48;2;255;140;0;38;2;0;0;0m"
+	// Banner row styling: theme-neutral. Background uses the palette's "bright black"
+	// (SGR 100) — the terminal renders it per the user's color scheme, a subtle gray on
+	// both light and dark themes — and the foreground is the terminal default (SGR 39).
+	// No truecolor / brand color, so the bar blends into whatever palette is in use.
+	// Set BEFORE clearLine so ESC[K paints the whole row via background-color-erase;
+	// resetStyle stops the color bleeding past row 1.
+	bannerStyle = esc + "[100;39m"
 	resetStyle  = esc + "[0m"
 
 	// releaseMargins resets the scroll region to the full screen.
@@ -188,7 +191,7 @@ func Draw(b Banner, cols, lines int) string {
 	sb.WriteString(saveCursor)        // save BEFORE setMargins — DECSTBM homes the cursor
 	sb.WriteString(setMargins(lines)) // (re)assert every redraw
 	sb.WriteString(gotoHome)
-	sb.WriteString(bannerStyle) // orange bg + black fg; clearLine paints the row via BCE
+	sb.WriteString(bannerStyle) // theme bg + default fg; clearLine paints the row via BCE
 	sb.WriteString(clearLine)
 	sb.WriteString(prefix) // left margin + emoji + gap (inherits the banner bg)
 	sb.WriteString(linked)
