@@ -5,6 +5,7 @@ import { getDb } from "@/db";
 import { advertisers } from "@/db/schema";
 import { serverEnv } from "@/env";
 import { badRequest, json, readJson } from "@/lib/api";
+import { getSessionUser } from "@/lib/sessionAuth";
 import { getStripe } from "@/lib/stripe";
 
 export const runtime = "nodejs";
@@ -21,7 +22,14 @@ const schema = z.object({
 // balance. NO money is credited here: the ledger is credited ONLY by the verified
 // `checkout.session.completed` webhook (see /api/webhooks/stripe). This route just
 // hands the user a hosted payment page.
+//
+// Requires a signed-in advertiser (better-auth session) who OWNS the target
+// advertiser row. Without this gate any caller could create Stripe Customers and
+// hosted payment pages for any advertiser UUID, and probe which UUIDs exist.
 export async function POST(req: Request) {
+  const user = await getSessionUser();
+  if (!user) return json({ error: "sign in required" }, { status: 401 });
+
   const parsed = await readJson(req, schema);
   if (!parsed.ok) return parsed.res;
   const { advertiserId, amountDollars } = parsed.data;
@@ -38,6 +46,11 @@ export async function POST(req: Request) {
     .where(eq(advertisers.id, advertiserId))
     .limit(1);
   if (!advertiser) return json({ error: "unknown advertiser" }, { status: 404 });
+  // Ownership check. Return 404 (not 403) so this isn't an existence oracle for
+  // advertisers the caller doesn't own.
+  if (advertiser.userId !== user.id) {
+    return json({ error: "unknown advertiser" }, { status: 404 });
+  }
 
   const stripe = getStripe();
 
