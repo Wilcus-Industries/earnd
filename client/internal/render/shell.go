@@ -119,9 +119,10 @@ func truncateToWidth(s string, cols int) string {
 
 // Banner is the content to draw on row 1.
 type Banner struct {
-	Line string // sanitized banner text
-	URL  string // OSC 8 click target (the signed redirect URL)
-	Icon string // optional emoji glyph drawn left of the line ("" = none)
+	Line   string // sanitized banner text
+	URL    string // OSC 8 click target (the signed redirect URL)
+	Icon   string // optional emoji glyph drawn left of the line ("" = none)
+	Status string // optional right-aligned notice (e.g. "⟳ updated"); "" = none
 }
 
 // iconCells is the column budget reserved for the emoji icon plus its margins:
@@ -129,6 +130,10 @@ type Banner struct {
 // emoji itself is reserved as 2 cells — terminals render an emoji grapheme as a
 // double-width cell, and counting runes would mis-measure ZWJ/flag sequences.
 const iconCells = 1 + 2 + 1
+
+// minAdCols is the smallest ad-text budget worth keeping alongside the right-aligned
+// status notice; below it the notice is dropped so the ad keeps the row.
+const minAdCols = 8
 
 // Draw returns the full escape sequence that pins row 1 and writes the banner,
 // truncated to cols and re-asserting margins for the given terminal height.
@@ -142,14 +147,42 @@ func Draw(b Banner, cols, lines int) string {
 	text := sanitizeLine(b.Line)
 	clickURL := safeURL(b.URL)
 	icon := sanitizeLine(b.Icon)
+
+	// Right-aligned status notice (e.g. "⟳ updated"). It is plain (no link) and is
+	// only drawn when, after reserving the left content, at least one column of gap
+	// remains — at narrow widths it is dropped entirely and the ad keeps the row.
+	status := sanitizeLine(b.Status)
+	statusW := 0
+	if status != "" {
+		statusW = displayWidth(status) + 1 // +1 for a minimum gap before the notice
+		// Drop the notice when reserving it would leave the ad too little room — at
+		// narrow widths the ad text wins the whole row.
+		if cols-statusW < minAdCols {
+			status, statusW = "", 0
+		}
+	}
+
+	budget := cols - statusW
 	prefix := ""
-	if icon != "" && cols > iconCells+1 {
+	if icon != "" && budget > iconCells+1 {
 		prefix = " " + icon + " "
-		text = truncateToWidth(text, cols-iconCells)
+		text = truncateToWidth(text, budget-iconCells)
 	} else {
-		text = truncateToWidth(text, cols)
+		text = truncateToWidth(text, budget)
 	}
 	linked := osc8(clickURL, text) // icon stays decorative (outside the click target)
+
+	// Pad from the end of the left content to the right edge so the notice sits flush
+	// right. The drop check above guarantees at least one column of gap remains here.
+	padding := ""
+	if status != "" {
+		gap := cols - displayWidth(prefix) - displayWidth(text) - displayWidth(status)
+		if gap < 1 {
+			gap = 1
+		}
+		padding = strings.Repeat(" ", gap)
+	}
+
 	var sb strings.Builder
 	sb.WriteString(beginSync)
 	sb.WriteString(saveCursor)        // save BEFORE setMargins — DECSTBM homes the cursor
@@ -159,6 +192,8 @@ func Draw(b Banner, cols, lines int) string {
 	sb.WriteString(clearLine)
 	sb.WriteString(prefix) // left margin + emoji + gap (inherits the banner bg)
 	sb.WriteString(linked)
+	sb.WriteString(padding)       // fill to the right edge (inherits the banner bg)
+	sb.WriteString(status)        // plain right-aligned notice
 	sb.WriteString(resetStyle)    // stop the color bleeding past the banner row
 	sb.WriteString(restoreCursor) // back to where the shell left it, not row 1
 	sb.WriteString(endSync)

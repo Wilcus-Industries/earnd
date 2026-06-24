@@ -128,3 +128,41 @@ func TestSafeURL(t *testing.T) {
 		}
 	}
 }
+
+// A status notice is drawn right-aligned at the row's edge, after the ad text.
+func TestDrawStatusRightAligned(t *testing.T) {
+	out := Draw(Banner{Line: "ad", Status: "⟳ updated"}, 40, 24)
+	if !strings.Contains(out, "⟳ updated") {
+		t.Fatalf("expected status notice in output; got:\n%q", out)
+	}
+	// The notice must follow the ad text (right side), not precede it.
+	if strings.Index(out, "ad") > strings.Index(out, "⟳ updated") {
+		t.Fatalf("status should come after the ad text; got:\n%q", out)
+	}
+}
+
+// When the row is too narrow to fit the ad text and the notice, the notice is
+// dropped and the ad still renders.
+func TestDrawStatusDroppedWhenNarrow(t *testing.T) {
+	out := Draw(Banner{Line: "buy now please", Status: "⟳ updated"}, 12, 24)
+	if strings.Contains(out, "⟳ updated") {
+		t.Fatalf("status notice should be dropped at narrow width; got:\n%q", out)
+	}
+	if !strings.Contains(out, "buy") {
+		t.Fatalf("ad text should still render; got:\n%q", out)
+	}
+}
+
+// The status notice steals columns from the ad text's truncation budget so the
+// combined content never overflows the row.
+func TestDrawStatusShrinksTextBudget(t *testing.T) {
+	line := strings.Repeat("a", 100)
+	cols := 40
+	status := "⟳ updated"
+	out := Draw(Banner{Line: line, Status: status}, cols, 24)
+	// statusW reserved = displayWidth(status)+1; text truncated to cols-statusW.
+	want := truncateToWidth(line, cols-(displayWidth(status)+1))
+	if !strings.Contains(out, want) {
+		t.Fatalf("ad text not truncated to leave room for the notice; got:\n%q", out)
+	}
+}
