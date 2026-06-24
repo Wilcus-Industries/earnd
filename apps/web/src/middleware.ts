@@ -25,7 +25,9 @@ function buildCsp(nonce: string, isProd: boolean): string {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    "connect-src 'self'",
+    // jsdelivr is required by the frimousse emoji picker (/bid), which fetches
+    // its emoji dataset from cdn.jsdelivr.net/npm/emojibase-data at runtime.
+    "connect-src 'self' https://cdn.jsdelivr.net",
     "form-action 'self'",
     "frame-ancestors 'none'",
     "base-uri 'self'",
