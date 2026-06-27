@@ -1,3 +1,7 @@
+# DISCLAIMER:
+
+Unfortunately, this project was too controversial. I will no longer be updating the repository, but the website and the server will continue to be up.
+
 # earnd
 
 A terminal ad network. The inventory is developer attention during idle terminal time:
